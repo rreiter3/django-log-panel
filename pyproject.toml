@@ -41,6 +41,9 @@ mongodb = ["pymongo==4.16.0"]
 where = ["."]
 include = ["log_panel*"]
 
+[tool.setuptools.package-data]
+log_panel = ["templates/**/*.html"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 88
