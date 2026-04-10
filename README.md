@@ -9,9 +9,9 @@ For alerting, it emits a Django signal when a logger crosses a configured thresh
 The dashboard shows one card per logger. Clicking a card opens a paginated table of log entries with level filtering and message search.
 
 <p align="center">
-  <a href="docs/images/main.png">
+  <a href="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/main.png">
     <img
-      src="docs/images/main.png"
+      src="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/main.png"
       alt="Log panel dashboard showing per-logger health cards for the last 24 hours"
       width="100%"
     />
@@ -19,9 +19,9 @@ The dashboard shows one card per logger. Clicking a card opens a paginated table
 </p>
 
 <p align="center">
-  <a href="docs/images/main_2.png">
+  <a href="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/main_2.png">
     <img
-      src="docs/images/main_2.png"
+      src="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/main_2.png"
       alt="Log panel dashboard showing a 90-day logger timeline"
       width="100%"
     />
@@ -29,16 +29,16 @@ The dashboard shows one card per logger. Clicking a card opens a paginated table
 </p>
 
 <p align="center">
-  <a href="docs/images/filter.png">
+  <a href="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/filter.png">
     <img
-      src="docs/images/filter.png"
+      src="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/filter.png"
       alt="Log detail view with message search and paginated entries"
       width="49%"
     />
   </a>
-  <a href="docs/images/filter_2.png">
+  <a href="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/filter_2.png">
     <img
-      src="docs/images/filter_2.png"
+      src="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/filter_2.png"
       alt="Log detail view with the level filter dropdown open"
       width="49%"
     />
@@ -83,6 +83,28 @@ uv add "django-log-panel[mongodb]"
 
 # with pip
 pip install "django-log-panel[mongodb]"
+```
+
+## Local Development
+
+If you want to work on a local checkout, install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) from the official docs.
+
+### With uv
+
+```bash
+cd `Project directory`
+uv venv --python=3.13
+uv sync --group dev
+uv run pytest
+```
+
+# Linting & typing
+
+```bash
+cd `Project directory`
+uv run ruff check
+uv run ruff format
+uv run ty check
 ```
 
 ## Quick Start
