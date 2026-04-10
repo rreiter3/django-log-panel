@@ -1,0 +1,13 @@
+{% extends "admin/log_panel/applog/base.html" %}
+{% load i18n %}
+
+{% block log_panel_content %}
+    {% include "admin/log_panel/applog/cards/style.html" %}
+    {% include "admin/log_panel/applog/cards/ranges.html" %}
+
+    {% for row in logger_rows %}
+        {% include "admin/log_panel/applog/cards/status_row.html" %}
+    {% empty %}
+        <p>{% trans "No log entries in the database yet." %}</p>
+    {% endfor %}
+{% endblock %}

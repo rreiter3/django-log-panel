@@ -1,0 +1,91 @@
+<style>
+  .range-btn {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: bold;
+    text-decoration: none;
+    background: #e8e8e8;
+    color: #333;
+  }
+  .range-btn--active {
+    background: #417690;
+    color: #fff !important;
+  }
+
+  .status-row {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 1em 1.25em;
+    margin-bottom: 0.75em;
+    background: #fff;
+  }
+  .status-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1em;
+    margin-bottom: 0.6em;
+  }
+  .status-logger-name {
+    font-weight: bold;
+    font-size: 0.95em;
+    color: #417690;
+    text-decoration: none;
+  }
+  .status-logger-name:hover { text-decoration: underline; }
+  .status-badges { display: flex; gap: 0.4em; flex-wrap: wrap; align-items: center; }
+  .badge {
+    border-radius: 3px;
+    padding: 1px 7px;
+    font-size: 0.72em;
+    font-weight: bold;
+    white-space: nowrap;
+  }
+  .badge-error   { background: #ba2121; color: #fff; }
+  .badge-warning { background: #c0a000; color: #fff; }
+  .badge-section { font-size: 0.68em; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .timeline {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+  }
+  .timeline-slot {
+    flex: 1;
+    height: 28px;
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    display: block;
+    text-decoration: none;
+  }
+  .timeline-slot:hover .timeline-tooltip { display: block; }
+  .timeline-slot.ok      { background: #44b78b; }
+  .timeline-slot.warning { background: #c0a000; }
+  .timeline-slot.error   { background: #ba2121; }
+  .timeline-slot.empty   { background: #e8e8e8; }
+  .timeline-tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 5px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    font-size: 0.7em;
+    padding: 3px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+  }
+  .timeline-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7em;
+    color: #aaa;
+    margin-top: 3px;
+  }
+</style>

@@ -1,0 +1,41 @@
+{% load i18n %}
+
+<div class="status-row">
+  <div class="status-header">
+    <a class="status-logger-name" href="?logger_name={{ row.logger_name }}">{{ row.logger_name }}</a>
+
+    <div style="display:flex; gap:1.5em; align-items:center;">
+      <div>
+        <div class="badge-section">{% trans "Last hour" %}</div>
+        <div class="status-badges" style="margin-top:3px;">
+          {% if row.recent_errors %}
+            <span class="badge badge-error">{{ row.recent_errors }} error{{ row.recent_errors|pluralize }}</span>
+          {% endif %}
+          {% if row.recent_warnings %}
+            <span class="badge badge-warning">{{ row.recent_warnings }} warning{{ row.recent_warnings|pluralize }}</span>
+          {% endif %}
+          {% if not row.recent_errors and not row.recent_warnings %}
+            <span style="font-size:0.75em;color:#44b78b;font-weight:bold;">{% trans "Healthy" %}</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div>
+        <div class="badge-section">{% trans "Total" %} ({{ row.total }})</div>
+        <div class="status-badges" style="margin-top:3px;">
+          {% if row.total_errors %}
+            <span class="badge badge-error">{{ row.total_errors }} error{{ row.total_errors|pluralize }}</span>
+          {% endif %}
+          {% if row.total_warnings %}
+            <span class="badge badge-warning">{{ row.total_warnings }} warning{{ row.total_warnings|pluralize }}</span>
+          {% endif %}
+          {% if not row.total_errors and not row.total_warnings %}
+            <span style="font-size:0.75em;color:#44b78b;font-weight:bold;">{% trans "Clean" %}</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% include "admin/log_panel/applog/cards/timeline.html" %}
+</div>

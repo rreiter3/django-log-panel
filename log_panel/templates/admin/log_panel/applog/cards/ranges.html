@@ -1,0 +1,13 @@
+{% load i18n %}
+
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1em;">
+  <span style="font-size:0.85em; color:#666;">{{ range_label }}</span>
+  <div style="display:flex; gap:4px;">
+    {% for r in ranges %}
+      <a href="?range={{ r }}"
+         class="range-btn {% if selected_range == r %}range-btn--active{% endif %}">
+        {{ r }}
+      </a>
+    {% endfor %}
+  </div>
+</div>

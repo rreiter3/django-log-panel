@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "django-log-panel"
+version = "0.1.0"
+description = "Django admin log viewer supporting MongoDB and SQL databases."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Robert Reiter", email = "reiterrobi@gmail.com" },
+]
+keywords = ["django", "logging", "admin", "mongodb"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Logging",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "django>=5.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/rreiter3/django-log-panel"
+Repository = "https://github.com/rreiter3/django-log-panel"
+Issues = "https://github.com/rreiter3/django-log-panel/issues"
+
+[project.optional-dependencies]
+mongodb = ["pymongo==4.16.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["log_panel*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",  # line-length enforced by formatter, not linter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["log_panel"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = ["."]
+addopts = "--cov=log_panel --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["log_panel"]
+omit = ["log_panel/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 95
+
+[dependency-groups]
+dev = [
+    "django-stubs==6.0.2",
+    "pymongo==4.16.0",
+    "pytest==9.0.3",
+    "pytest-cov>=6.0",
+    "pytest-django>=4.9",
+    "ruff>=0.15.10",
+    "time-machine>=2.16",
+    "ty>=0.0.29",
+]

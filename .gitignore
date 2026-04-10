@@ -1,0 +1,15 @@
+# Python
+__pycache__
+.venv
+# pytest
+backend/.pytest_cache
+.coverage
+htmlcov
+# Secrets
+.env*
+# IDE / OS
+.DS_Store
+.idea
+.vscode
+# Application
+*.egg-info

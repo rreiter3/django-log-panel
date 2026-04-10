@@ -1,0 +1,12 @@
+<div class="timeline">
+  {% for slot in row.timeline %}
+    <a class="timeline-slot {{ slot.status }}"
+       href="?logger_name={{ row.logger_name }}&timestamp_from={{ slot.timestamp_from }}&timestamp_to={{ slot.timestamp_to }}">
+      <div class="timeline-tooltip">{{ slot.label }} — {{ slot.status }}</div>
+    </a>
+  {% endfor %}
+</div>
+<div class="timeline-footer">
+  <span>{{ range_label }} ago</span>
+  <span>now</span>
+</div>

@@ -1,0 +1,78 @@
+{% extends "admin/log_panel/applog/base.html" %}
+{% load i18n %}
+
+{% block log_panel_content %}
+{% include "admin/log_panel/applog/table/style.html" %}
+
+<p class="log-back">
+  <a href="?">&laquo; {% trans "Back to loggers" %}</a>
+</p>
+
+<form method="get" id="log-filter-form" class="log-filter-form">
+  <input type="hidden" name="logger_name" value="{{ logger_name }}">
+
+  <label for="id_level">{% trans "Level" %}:</label>
+  <select name="level" id="id_level">
+    <option value="">{% trans "All" %}</option>
+    {% for choice in level_choices %}
+      <option value="{{ choice }}" {% if level_filter == choice %}selected{% endif %}>{{ choice }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="id_search">{% trans "Message" %}:</label>
+  <input type="text" name="search" id="id_search" value="{{ search }}" placeholder="{% trans 'Search message...' %}">
+
+  <label for="id_timestamp_from">{% trans "From" %}:</label>
+  <input type="datetime-local" name="timestamp_from" id="id_timestamp_from" value="{{ timestamp_from }}">
+
+  <label for="id_timestamp_to">{% trans "To" %}:</label>
+  <input type="datetime-local" name="timestamp_to" id="id_timestamp_to" value="{{ timestamp_to }}">
+
+  <input type="submit" value="{% trans 'Filter' %}">
+  <a href="?logger_name={{ logger_name }}" class="log-filter-clear">{% trans "Clear" %}</a>
+</form>
+
+<p>{{ total }} {% trans "log" %} entr{{ total|pluralize:"y,ies" }} {% trans "found" %}. {% trans "Page" %} {{ page }} {% trans "of" %} {{ total_pages }}.</p>
+
+<table id="result_list">
+  <thead>
+    <tr>
+      <th scope="col">{% trans "Timestamp" %}</th>
+      <th scope="col">{% trans "Level" %}</th>
+      <th scope="col">{% trans "Module" %}</th>
+      <th scope="col">{% trans "Message" %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in logs %}
+    <tr class="{% cycle 'row1' 'row2' %}">
+      <td class="log-col-timestamp">{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+      <td>
+        {% if log.level == "ERROR" or log.level == "CRITICAL" %}
+          <span class="log-level-error">{{ log.level }}</span>
+        {% elif log.level == "WARNING" %}
+          <span class="log-level-warning">{{ log.level }}</span>
+        {% elif log.level == "INFO" %}
+          <span class="log-level-info">{{ log.level }}</span>
+        {% else %}
+          <span class="log-level-default">{{ log.level }}</span>
+        {% endif %}
+      </td>
+      <td class="log-col-module">{{ log.module }}</td>
+      <td class="log-col-message">{{ log.message }}</td>
+    </tr>
+    {% empty %}
+      <tr><td colspan="4">{% trans "No log entries found." %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div class="log-pagination">
+  {% if has_prev %}
+    <a href="?logger_name={{ logger_name }}&page={{ page|add:'-1' }}&level={{ level_filter }}&search={{ search }}&timestamp_from={{ timestamp_from }}&timestamp_to={{ timestamp_to }}">&laquo; {% trans "Previous" %}</a>
+  {% endif %}
+  {% if has_next %}
+    <a href="?logger_name={{ logger_name }}&page={{ page|add:'1' }}&level={{ level_filter }}&search={{ search }}&timestamp_from={{ timestamp_from }}&timestamp_to={{ timestamp_to %}">{% trans "Next" %} &raquo;</a>
+  {% endif %}
+</div>
+{% endblock %}
