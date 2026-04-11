@@ -23,6 +23,12 @@ class PanelAdmin(admin.ModelAdmin):
     - **Table view**: paginated log entries for a single logger, filterable by level and message content.
     """
 
+    def has_view_permission(self, request: HttpRequest, obj: Any = None) -> bool:
+        callback = conf.get_permission_callback()
+        if callback is None and hasattr(request, "user") and hasattr(request.user, "is_staff"):
+            return bool(request.user.is_active and request.user.is_staff)
+        return callback(request)
+
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
@@ -85,6 +91,7 @@ class PanelAdmin(admin.ModelAdmin):
             "selected_range": selected_range,
             "range_label": range_label,
             "ranges": list(ranges.keys()),
+            "level_colors": conf.get_level_colors(),
             "error": error,
         }
 
@@ -149,7 +156,7 @@ class PanelAdmin(admin.ModelAdmin):
             "search": search,
             "timestamp_from": timestamp_from_str,
             "timestamp_to": timestamp_to_str,
-            "level_choices": conf.get_setting(key="LEVEL_CHOICES"),
+            "level_colors": conf.get_level_colors(),
             "error": error,
         }
 

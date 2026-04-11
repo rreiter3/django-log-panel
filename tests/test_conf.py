@@ -153,3 +153,75 @@ def test_ready_does_not_raise_when_no_alias_configured():
 
     config = LogPanelConfig("log_panel", log_panel)
     config.ready()
+
+
+def test_get_level_colors_returns_all_defaults():
+    from log_panel.conf import get_level_colors
+
+    colors = get_level_colors()
+    assert colors["NOTSET"] == "#888"
+    assert colors["DEBUG"] == "#888"
+    assert colors["INFO"] == "#417690"
+    assert colors["WARNING"] == "#c0a000"
+    assert colors["ERROR"] == "#c47900"
+    assert colors["CRITICAL"] == "#ba2121"
+
+
+@override_settings(LOG_PANEL={"LEVEL_COLORS": {"ERROR": "#ff0000"}})
+def test_get_level_colors_user_override_merges_with_defaults():
+    from log_panel.conf import get_level_colors
+
+    colors = get_level_colors()
+    assert colors["ERROR"] == "#ff0000"
+    assert colors["WARNING"] == "#c0a000"
+
+
+@override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
+def test_get_level_colors_custom_level_added():
+    from log_panel.conf import get_level_colors
+
+    colors = get_level_colors()
+    assert colors["MY_AUDIT"] == "#0055aa"
+    assert "ERROR" in colors
+
+
+def test_get_permission_callback_returns_none_by_default():
+    from log_panel.conf import get_permission_callback
+
+    assert get_permission_callback() is None
+
+
+@override_settings(LOG_PANEL={"PERMISSION_CALLBACK": "tests.helpers.allow_all"})
+def test_get_permission_callback_returns_callable():
+    from log_panel.conf import get_permission_callback
+    from tests.helpers import allow_all
+
+    callback = get_permission_callback()
+    assert callback is allow_all
+
+
+@override_settings(LOG_PANEL={"PERMISSION_CALLBACK": "tests.nonexistent.func"})
+def test_get_permission_callback_raises_on_bad_path():
+    from django.core.exceptions import ImproperlyConfigured
+
+    from log_panel.conf import get_permission_callback
+
+    with pytest.raises(ImproperlyConfigured, match="PERMISSION_CALLBACK"):
+        get_permission_callback()
+
+
+def test_get_level_colors_includes_all_standard_levels_by_default():
+    from log_panel.conf import get_level_colors
+
+    colors = get_level_colors()
+    for level in ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"):
+        assert level in colors
+
+
+@override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
+def test_get_level_colors_custom_level_preserves_defaults():
+    from log_panel.conf import get_level_colors
+
+    colors = get_level_colors()
+    assert colors["MY_AUDIT"] == "#0055aa"
+    assert colors["ERROR"] == "#c47900"
