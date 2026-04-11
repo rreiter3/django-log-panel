@@ -25,7 +25,11 @@ class PanelAdmin(admin.ModelAdmin):
 
     def has_view_permission(self, request: HttpRequest, obj: Any = None) -> bool:
         callback = conf.get_permission_callback()
-        if callback is None and hasattr(request, "user") and hasattr(request.user, "is_staff"):
+        if (
+            callback is None
+            and hasattr(request, "user")
+            and hasattr(request.user, "is_staff")
+        ):
             return bool(request.user.is_active and request.user.is_staff)
         return callback(request)
 
