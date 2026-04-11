@@ -52,10 +52,10 @@ class PanelAdmin(admin.ModelAdmin):
 
         if logger_name:
             context = self._log_table_context(request, backend, logger_name, error)
-            template = "admin/log_panel/applog/table.html"
+            template = "admin/log_panel/panel/table.html"
         else:
             context = self._logger_cards_context(request, backend, error)
-            template = "admin/log_panel/applog/cards.html"
+            template = "admin/log_panel/panel/cards.html"
 
         return TemplateResponse(request, template, context)
 

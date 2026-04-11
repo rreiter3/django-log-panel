@@ -88,4 +88,26 @@
     color: #aaa;
     margin-top: 3px;
   }
+
+  .status-healthy { font-size: 0.75em; color: #44b78b; font-weight: bold; }
+
+  @media (prefers-color-scheme: dark) {
+    .status-healthy { color: #2d7a5f; }
+
+    .status-row          { border-color: #3a3a3a; background: #1a1a1a; }
+    .status-logger-name  { color: #6bafc6; }
+    .range-btn           { background: #2a2a2a; color: #ccc; }
+    .badge-section       { color: #666; }
+    .timeline-slot.ok    { background: #2d7a5f; }
+    .timeline-slot.empty { background: #2a2a2a; }
+    .timeline-footer     { color: #666; }
+  }
+  [data-theme="dark"] .status-row          { border-color: #3a3a3a; background: #1a1a1a; }
+  [data-theme="dark"] .status-logger-name  { color: #6bafc6; }
+  [data-theme="dark"] .range-btn           { background: #2a2a2a; color: #ccc; }
+  [data-theme="dark"] .badge-section       { color: #666; }
+  [data-theme="dark"] .timeline-slot.ok    { background: #2d7a5f; }
+  [data-theme="dark"] .timeline-slot.empty { background: #2a2a2a; }
+  [data-theme="dark"] .timeline-footer     { color: #666; }
+  [data-theme="dark"] .status-healthy      { color: #2d7a5f; }
 </style>

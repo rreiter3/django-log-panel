@@ -15,7 +15,7 @@
             <span class="badge badge-warning">{{ row.recent_warnings }} warning{{ row.recent_warnings|pluralize }}</span>
           {% endif %}
           {% if not row.recent_errors and not row.recent_warnings %}
-            <span style="font-size:0.75em;color:#44b78b;font-weight:bold;">{% trans "Healthy" %}</span>
+            <span class="status-healthy">{% trans "Healthy" %}</span>
           {% endif %}
         </div>
       </div>
@@ -30,12 +30,12 @@
             <span class="badge badge-warning">{{ row.total_warnings }} warning{{ row.total_warnings|pluralize }}</span>
           {% endif %}
           {% if not row.total_errors and not row.total_warnings %}
-            <span style="font-size:0.75em;color:#44b78b;font-weight:bold;">{% trans "Clean" %}</span>
+            <span class="status-healthy">{% trans "Clean" %}</span>
           {% endif %}
         </div>
       </div>
     </div>
   </div>
 
-  {% include "admin/log_panel/applog/cards/timeline.html" %}
+  {% include "admin/log_panel/panel/cards/timeline.html" %}
 </div>
