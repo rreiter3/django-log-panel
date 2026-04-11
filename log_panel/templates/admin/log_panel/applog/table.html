@@ -14,8 +14,8 @@
   <label for="id_level">{% trans "Level" %}:</label>
   <select name="level" id="id_level">
     <option value="">{% trans "All" %}</option>
-    {% for choice in level_choices %}
-      <option value="{{ choice }}" {% if level_filter == choice %}selected{% endif %}>{{ choice }}</option>
+    {% for level, _ in level_colors.items %}
+      <option value="{{ level }}" {% if level_filter == level %}selected{% endif %}>{{ level }}</option>
     {% endfor %}
   </select>
 
@@ -48,15 +48,7 @@
     <tr class="{% cycle 'row1' 'row2' %}">
       <td class="log-col-timestamp">{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
       <td>
-        {% if log.level == "ERROR" or log.level == "CRITICAL" %}
-          <span class="log-level-error">{{ log.level }}</span>
-        {% elif log.level == "WARNING" %}
-          <span class="log-level-warning">{{ log.level }}</span>
-        {% elif log.level == "INFO" %}
-          <span class="log-level-info">{{ log.level }}</span>
-        {% else %}
-          <span class="log-level-default">{{ log.level }}</span>
-        {% endif %}
+        <span class="log-level-default log-level-{{ log.level|lower }}">{{ log.level }}</span>
       </td>
       <td class="log-col-module">{{ log.module }}</td>
       <td class="log-col-message">{{ log.message }}</td>

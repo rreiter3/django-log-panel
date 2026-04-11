@@ -1,5 +1,9 @@
 # django-log-panel
 
+
+[![Latest on Django Packages](https://img.shields.io/badge/Django_Packages-django--log--panel-8c3c26.svg)](https://djangopackages.org/packages/p/django-log-panel/)
+
+
 `django-log-panel` collects logs from any logger configured in Django's standard `LOGGING` setting and displays them on a dashboard inspired by a status page. Each logger gets its own health card showing error and warning counts, a colour-coded activity timeline, and a drilldown into searchable, filterable log entries - all inside Django admin, with no separate service to run.
 
 For alerting, it emits a Django signal when a logger crosses a configured threshold, leaving the response - email, Slack, webhook - entirely to the application.
@@ -50,14 +54,20 @@ Supports two storage backends:
 - **MongoDB** - write-heavy, append-only logging with automatic TTL-based retention.
 - **SQL** - logs stored in any Django-supported relational database via the `Panel` model.
 
-## What It Provides
+## Key Features
 
-- `log_panel.handlers.MongoDBHandler` - writes log records to MongoDB.
-- `log_panel.handlers.DatabaseHandler` - writes log records to a SQL database via Django ORM.
-- `log_panel.signals.log_threshold_reached` - emits a lightweight Django signal when a logger crosses a warning or error threshold.
-- `log_panel.backends.MongoDBBackend` and `log_panel.backends.SqlBackend` - power the admin views.
-- A Django admin changelist showing per-logger health cards with timelines, filtering, and pagination.
-- `delete_old_logs` management command for SQL retention cleanup.
+- **Status-page dashboard in Django admin** - a health card per logger showing total errors, warnings, and recent issues from the last hour, all without a separate service to run.
+- **Colour-coded activity timeline** - each card includes a visual timeline strip across configurable time ranges (e.g. last 24h, 30d, 90d).
+- **Searchable, filterable log table** - click any card to open a paginated list of log entries with level filtering and free-text message search.
+- **Two storage backends** - write logs to MongoDB (append-only, automatic TTL-based cleanup) or any Django-supported SQL database.
+- **Threshold alerting via Django signals** - emits a signal when a logger crosses a configured per-level count within a rolling one-hour window, leaving the response entirely to the application.
+- **Customisable log level colors** - configure hex colours for any log level badge, including custom Python log levels, which are automatically added to the filter dropdown.
+- **Configurable timeline ranges** - define your own time range slots to match how you think about your traffic patterns.
+- **Configurable alert thresholds** - set per-level count thresholds before the signal fires, or disable alerting for specific levels entirely.
+- **Configurable page title and table size** - customise the panel heading and how many rows appear per page in the log detail view.
+- **Flexible access control** - restrict the panel to specific users or groups via a permission callback, beyond the default Django staff check.
+- **High-volume buffering support** - optionally wrap handlers with Python's built-in `MemoryHandler` for batch writes on busy applications.
+- **Configurable data retention** - automatic TTL expiry for MongoDB; a management command with dry-run and batch options for SQL.
 
 ## Requirements
 
@@ -175,7 +185,7 @@ LOGGING = {
 
 ### Notes
 
-- Formatters configured in `LOGGING` have no effect on `MongoDBHandler`. The message is always stored as the raw log text; structured fields (`level`, `timestamp`, `module`, etc.) are captured directly from the log record. Exception tracebacks are appended automatically when present.
+- **Formatters configured in `LOGGING` have no effect on `MongoDBHandler`**. The message is always stored as the raw log text; structured fields (`level`, `timestamp`, `module`, etc.) are captured directly from the log record. Exception tracebacks are appended automatically when present.
 - `MongoDBHandler` creates three indexes automatically on the first write:
   - A TTL index on `timestamp` for automatic record expiry.
   - A compound index on `(timestamp, logger_name, level)` to speed up timeline aggregations (covered index, no document fetch needed).
@@ -394,20 +404,7 @@ from log_panel.signals import ThresholdAlertEvent, log_threshold_reached
 
 @receiver(log_threshold_reached)
 def on_threshold_reached(sender, event: ThresholdAlertEvent, **kwargs):
-    # event contains full context - logger name, level, count, message, location
     ...
-```
-
-```python
-# myapp/apps.py
-from django.apps import AppConfig
-
-
-class MyAppConfig(AppConfig):
-    name = "myapp"
-
-    def ready(self) -> None:
-        import myapp.log_alerts
 ```
 
 ### Notes
@@ -430,23 +427,177 @@ Admin URL: `/admin/log_panel/panel/`
 
 ## LOG_PANEL Settings Reference
 
-| Setting                         | Default                                       | Description                                                                                                                                                                                                                    | Example                                          |
-| ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
-| `BACKEND`                     | `None`                                      | Dotted path to a custom backend class. Overrides auto-detection.                                                                                                                                                               | `"myapp.logging.MyBackend"`                    |
-| `CONNECTION_STRING`           | `None`                                      | MongoDB connection string.                                                                                                                                                                                                     | `"mongodb://localhost:27017"`                  |
-| `DB_NAME`                     | `"log_panel"`                               | MongoDB database name.                                                                                                                                                                                                         | `"myapp_logs"`                                 |
-| `COLLECTION`                  | `"logs"`                                    | MongoDB collection name.                                                                                                                                                                                                       | `"app_logs"`                                   |
-| `TTL_DAYS`                    | `90`                                        | Retention window in days.                                                                                                                                                                                                      | `30`                                           |
-| `SERVER_SELECTION_TIMEOUT_MS` | `2000`                                      | Milliseconds before `MongoDBConnectionError` is raised. Applies to both `MongoDBBackend` and `MongoDBHandler`.                                                                                                           | `5000`                                         |
-| `ALLOW_DISK_USE`              | `False`                                     | Pass `allowDiskUse=True` to MongoDB aggregation pipelines. Enable this when queries on large collections (millions of records, long time ranges) exceed MongoDB's 100 MB in-memory aggregation limit. MongoDB-only.          | `True`                                         |
-| `DATABASE_ALIAS`              | `None`                                      | Explicit SQL database alias for log storage.                                                                                                                                                                                   | `"logs"`                                       |
-| `TITLE`                       | `"Panel Logs"`                              | Page title shown in the admin UI.                                                                                                                                                                                              | `"Production Logs"`                            |
-| `PAGE_SIZE`                   | `10`                                        | Rows per page in the detail table.                                                                                                                                                                                             | `25`                                           |
-| `LEVEL_CHOICES`               | All `LogLevel` values                       | Level filter options shown in admin.                                                                                                                                                                                           | `["WARNING", "ERROR", "CRITICAL"]`             |
-| `RANGES`                      | `{"24h": ..., "30d": ..., "90d": ...}`      | Timeline range definitions for the logger cards.                                                                                                                                                                               | See[Custom RANGES](#custom-ranges)                  |
-| `THRESHOLDS`                  | `{"WARNING": 1, "ERROR": 1, "CRITICAL": 1}` | Per-level alert thresholds. The `log_threshold_reached` signal fires when a level's count in the rolling one-hour window hits the configured value. Omit a level to keep its default; set a level to `None` to disable it. | `{"CRITICAL": 1, "ERROR": 5, "WARNING": None}` |
+<table>
+  <colgroup>
+    <col style="min-width: 240px">
+    <col>
+    <col style="max-width: 25%">
+    <col>
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th>Default</th>
+      <th>Description</th>
+      <th>Example</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>BACKEND</code></td>
+      <td><code>None</code></td>
+      <td>Dotted path to a custom backend class. Overrides auto-detection.</td>
+      <td><code>"myapp.logging.MyBackend"</code></td>
+    </tr>
+    <tr>
+      <td><code>CONNECTION_STRING</code></td>
+      <td><code>None</code></td>
+      <td>MongoDB connection string.</td>
+      <td><code>"mongodb://localhost:27017"</code></td>
+    </tr>
+    <tr>
+      <td><code>DB_NAME</code></td>
+      <td><code>"log_panel"</code></td>
+      <td>MongoDB database name.</td>
+      <td><code>"myapp_logs"</code></td>
+    </tr>
+    <tr>
+      <td><code>COLLECTION</code></td>
+      <td><code>"logs"</code></td>
+      <td>MongoDB collection name.</td>
+      <td><code>"app_logs"</code></td>
+    </tr>
+    <tr>
+      <td><code>TTL_DAYS</code></td>
+      <td><code>90</code></td>
+      <td>Retention window in days.</td>
+      <td><code>30</code></td>
+    </tr>
+    <tr>
+      <td><code>SERVER_SELECTION_TIMEOUT_MS</code></td>
+      <td><code>2000</code></td>
+      <td>Milliseconds before <code>MongoDBConnectionError</code> is raised. Applies to both <code>MongoDBBackend</code> and <code>MongoDBHandler</code>.</td>
+      <td><code>5000</code></td>
+    </tr>
+    <tr>
+      <td><code>ALLOW_DISK_USE</code></td>
+      <td><code>False</code></td>
+      <td>Pass <code>allowDiskUse=True</code> to MongoDB aggregation pipelines. Enable this when queries on large collections (millions of records, long time ranges) exceed MongoDB's 100 MB in-memory aggregation limit. MongoDB-only.</td>
+      <td><code>True</code></td>
+    </tr>
+    <tr>
+      <td><code>DATABASE_ALIAS</code></td>
+      <td><code>None</code></td>
+      <td>Explicit SQL database alias for log storage.</td>
+      <td><code>"logs"</code></td>
+    </tr>
+    <tr>
+      <td><code>TITLE</code></td>
+      <td><code>"Panel Logs"</code></td>
+      <td>Page title shown in the admin UI.</td>
+      <td><code>"Production Logs"</code></td>
+    </tr>
+    <tr>
+      <td><code>PAGE_SIZE</code></td>
+      <td><code>10</code></td>
+      <td>Rows per page in the detail table.</td>
+      <td><code>25</code></td>
+    </tr>
+    <tr>
+      <td><code>RANGES</code></td>
+      <td><code>{"24h": ..., "30d": ..., "90d": ...}</code></td>
+      <td>Timeline range definitions for the logger cards.</td>
+      <td>See <a href="#custom-ranges">Custom RANGES</a></td>
+    </tr>
+    <tr>
+      <td><code>THRESHOLDS</code></td>
+      <td><code>{"WARNING": 1, "ERROR": 1, "CRITICAL": 1}</code></td>
+      <td>Per-level alert thresholds. The <code>log_threshold_reached</code> signal fires when a level's count in the rolling one-hour window hits the configured value. Omit a level to keep its default; set a level to <code>None</code> to disable it.</td>
+      <td><code>{"CRITICAL": 1, "ERROR": 5, "WARNING": None}</code></td>
+    </tr>
+    <tr>
+      <td><code>LEVEL_COLORS</code></td>
+      <td>See <a href="#log-level-colors">Log Level Colors</a></td>
+      <td>Hex colors for each log level in the admin table view. Merge with defaults - only override the levels you want to change. Custom level names are supported.</td>
+      <td><code>{"CRITICAL": "#9b00d3", "MY_AUDIT": "#0055aa"}</code></td>
+    </tr>
+    <tr>
+      <td><code>PERMISSION_CALLBACK</code></td>
+      <td><code>None</code></td>
+      <td>Dotted path to a callable <code>(request: HttpRequest) -> bool</code> that controls who can view the panel. When not set, any active staff user may view it.</td>
+      <td><code>"myapp.utils.superusers_only"</code></td>
+    </tr>
+  </tbody>
+</table>
 
-### Custom RANGES
+### Log Level Colors
+
+The table view colors each log level badge using the `LEVEL_COLORS` setting. The defaults map Python's six standard levels:
+
+| Level        | Default color        |
+| ------------ | -------------------- |
+| `NOTSET`   | `#888` (gray)      |
+| `DEBUG`    | `#888` (gray)      |
+| `INFO`     | `#417690` (blue)   |
+| `WARNING`  | `#c0a000` (amber)  |
+| `ERROR`    | `#c47900` (orange) |
+| `CRITICAL` | `#ba2121` (red)    |
+
+Override individual levels or add entirely custom ones - you do not need to specify the full set:
+
+```python
+LOG_PANEL = {
+    "LEVEL_COLORS": {
+        "CRITICAL": "#9b00d3",
+        "MY_AUDIT": "#0055aa",
+    },
+}
+```
+
+Any level name with no entry in `LEVEL_COLORS` falls back to gray.
+
+**Custom log levels** are supported. Register a custom level with Python's `logging` module, add it to `LEVEL_COLORS`, and it will automatically appear in the filter dropdown and receive its configured color in the table:
+
+```python
+# Register the custom level
+import logging
+MY_AUDIT = 25
+logging.addLevelName(MY_AUDIT, "MY_AUDIT")
+
+# Configure the panel
+LOG_PANEL = {
+    "LEVEL_COLORS": {
+        "MY_AUDIT": "#0055aa",
+    },
+}
+```
+
+Note: Python's `logger.exception()` method logs at `ERROR` level - records stored from it carry `level = "ERROR"`, not `"EXCEPTION"`.
+
+### Permissions
+
+By default, any active staff user (`is_staff=True`) can view the log panel. Use `PERMISSION_CALLBACK` to restrict access to a specific subset of users:
+
+```python
+LOG_PANEL = {
+    "PERMISSION_CALLBACK": "myapp.utils.can_view_logs",
+}
+```
+
+The callback receives the current `HttpRequest` and must return `True` to grant access:
+
+```python
+def can_view_logs(request):
+    return request.user.is_superuser
+```
+
+```python
+# Allow only users in a specific group
+def can_view_logs(request):
+    return request.user.groups.filter(name="log-viewers").exists()
+```
+
+Custom RANGES
 
 Override the timeline ranges by providing `RangeConfig` instances or plain dicts:
 

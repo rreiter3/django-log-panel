@@ -4,7 +4,7 @@ from typing import Any
 
 from django.conf import settings
 
-from log_panel.types import LogLevel, RangeConfig, RangeUnit
+from log_panel.types import RangeConfig, RangeUnit
 
 DEFAULTS: dict[str, Any] = {
     # Backend — None means auto-detect
@@ -27,7 +27,16 @@ DEFAULTS: dict[str, Any] = {
     # UI
     "TITLE": "Log Panel",
     "PAGE_SIZE": 10,
-    "LEVEL_CHOICES": [level.value for level in LogLevel],
+    "LEVEL_COLORS": {
+        "NOTSET": "#888",
+        "DEBUG": "#888",
+        "INFO": "#417690",
+        "WARNING": "#c0a000",
+        "ERROR": "#c47900",
+        "CRITICAL": "#ba2121",
+    },
+    # Access control — None means any active staff user may view the panel
+    "PERMISSION_CALLBACK": None,
     "RANGES": {
         "24h": RangeConfig(
             delta=timedelta(hours=24),
@@ -120,3 +129,40 @@ def get_backend():
         )
 
     return None
+
+
+def get_level_colors() -> dict[str, str]:
+    """Return the level color map used for both CSS generation and the filter dropdown.
+
+    Merges user-configured ``LOG_PANEL['LEVEL_COLORS']`` with defaults, so only
+    overridden or added levels need to be specified.
+    """
+    user_config: dict[str, Any] = getattr(settings, "LOG_PANEL", {})
+    user_colors: dict[str, str] = user_config.get("LEVEL_COLORS", {})
+    return {**DEFAULTS["LEVEL_COLORS"], **user_colors}
+
+
+def get_permission_callback():
+    """Return the configured permission callable, or None.
+
+    The setting must be a dotted path to a callable ``(request: HttpRequest) -> bool``.
+    When not configured, the panel falls back to allowing any active staff user.
+
+    Raises:
+        ImproperlyConfigured: if the dotted path is set but cannot be imported.
+    """
+    from django.core.exceptions import ImproperlyConfigured
+
+    dotted: str | None = get_setting(key="PERMISSION_CALLBACK")
+    if not dotted:
+        return None
+    try:
+        from importlib import import_module
+
+        module_path, func_name = dotted.rsplit(".", 1)
+        module: ModuleType = import_module(name=module_path)
+        return getattr(module, func_name)
+    except (ImportError, AttributeError, ValueError) as exc:
+        raise ImproperlyConfigured(
+            f"LOG_PANEL['PERMISSION_CALLBACK'] = {dotted!r} could not be imported: {exc}"
+        ) from exc

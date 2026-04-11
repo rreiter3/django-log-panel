@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.admin import AdminSite
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 
 from log_panel.admin import PanelAdmin
 from log_panel.models import Panel
@@ -245,3 +245,68 @@ def test_log_table_context_empty_timestamps_pass_none_to_backend(panel_admin, fa
     _, kwargs = backend.get_log_table.call_args
     assert kwargs["timestamp_from"] is None
     assert kwargs["timestamp_to"] is None
+
+
+def test_has_view_permission_allows_active_staff_by_default(panel_admin, factory):
+    request = factory.get("/")
+    request.user = MagicMock(is_active=True, is_staff=True)
+    assert panel_admin.has_view_permission(request) is True
+
+
+def test_has_view_permission_denies_inactive_user_by_default(panel_admin, factory):
+    request = factory.get("/")
+    request.user = MagicMock(is_active=False, is_staff=True)
+    assert panel_admin.has_view_permission(request) is False
+
+
+def test_has_view_permission_denies_non_staff_by_default(panel_admin, factory):
+    request = factory.get("/")
+    request.user = MagicMock(is_active=True, is_staff=False)
+    assert panel_admin.has_view_permission(request) is False
+
+
+@pytest.mark.django_db
+def test_has_view_permission_uses_callback_when_configured(panel_admin, factory):
+    request = factory.get("/")
+    request.user = MagicMock(is_active=False, is_staff=False)
+    with override_settings(
+        LOG_PANEL={"PERMISSION_CALLBACK": "tests.helpers.allow_all"}
+    ):
+        assert panel_admin.has_view_permission(request) is True
+
+
+@pytest.mark.django_db
+def test_has_view_permission_callback_can_deny(panel_admin, factory):
+    request = factory.get("/")
+    request.user = MagicMock(is_active=True, is_staff=True)
+    with override_settings(LOG_PANEL={"PERMISSION_CALLBACK": "tests.helpers.deny_all"}):
+        assert panel_admin.has_view_permission(request) is False
+
+
+def test_logger_cards_context_includes_level_colors(panel_admin, factory):
+    request = factory.get("/")
+    ctx = panel_admin._logger_cards_context(request, None, None)
+    assert "level_colors" in ctx
+    assert "ERROR" in ctx["level_colors"]
+
+
+def test_log_table_context_includes_level_colors(panel_admin, factory):
+    request = factory.get("/")
+    ctx = panel_admin._log_table_context(request, None, "myapp", None)
+    assert "level_colors" in ctx
+    assert "ERROR" in ctx["level_colors"]
+
+
+@override_settings(LOG_PANEL={"LEVEL_COLORS": {"ERROR": "#ff0000"}})
+def test_logger_cards_context_reflects_custom_level_colors(panel_admin, factory):
+    request = factory.get("/")
+    ctx = panel_admin._logger_cards_context(request, None, None)
+    assert ctx["level_colors"]["ERROR"] == "#ff0000"
+    assert ctx["level_colors"]["WARNING"] == "#c0a000"
+
+
+@override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
+def test_log_table_context_level_colors_includes_custom_level(panel_admin, factory):
+    request = factory.get("/")
+    ctx = panel_admin._log_table_context(request, None, "myapp", None)
+    assert "MY_AUDIT" in ctx["level_colors"]

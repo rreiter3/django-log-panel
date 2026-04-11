@@ -11,10 +11,9 @@
   .log-pagination { margin-top: 1em; }
   .log-pagination a + a { margin-left: 1em; }
 
-  .log-level-error    { color: #ba2121; font-weight: bold; white-space: nowrap; }
-  .log-level-warning  { color: #c0a000; font-weight: bold; white-space: nowrap; }
-  .log-level-info     { color: #417690; white-space: nowrap; }
-  .log-level-default  { color: #888;    white-space: nowrap; }
+  .log-level-default { color: #888; white-space: nowrap; }
+  {% for level, color in level_colors.items %}.log-level-{{ level|lower }} { color: {{ color }}; white-space: nowrap;{% if level == "ERROR" or level == "WARNING" or level == "CRITICAL" %} font-weight: bold;{% endif %} }
+  {% endfor %}
 
   .log-col-timestamp  { white-space: nowrap; }
   .log-col-module     { white-space: nowrap; font-size: 0.85em; }

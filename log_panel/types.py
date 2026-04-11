@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -6,13 +7,14 @@ from typing import Any, Literal, cast
 
 
 class LogLevel(StrEnum):
-    """Valid log level values."""
+    """Valid log level values, derived from Python's logging module constants."""
 
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
+    CRITICAL = logging.getLevelName(level=logging.CRITICAL)
+    ERROR = logging.getLevelName(level=logging.ERROR)
+    WARNING = logging.getLevelName(level=logging.WARNING)
+    INFO = logging.getLevelName(level=logging.INFO)
+    DEBUG = logging.getLevelName(level=logging.DEBUG)
+    NOTSET = logging.getLevelName(level=logging.NOTSET)
 
 
 # Levels that represent error conditions.

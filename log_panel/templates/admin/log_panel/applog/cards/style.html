@@ -42,8 +42,8 @@
     font-weight: bold;
     white-space: nowrap;
   }
-  .badge-error   { background: #ba2121; color: #fff; }
-  .badge-warning { background: #c0a000; color: #fff; }
+  .badge-error   { background: {{ level_colors.ERROR|default:"#c47900" }}; color: #fff; }
+  .badge-warning { background: {{ level_colors.WARNING|default:"#c0a000" }}; color: #fff; }
   .badge-section { font-size: 0.68em; color: #aaa; text-transform: uppercase; letter-spacing: 0.05em; }
 
   .timeline {
