@@ -23,10 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Require main branch
+      - name: Require main branch for PyPI
+        if: ${{ inputs.publish_target == 'pypi' }}
         run: |
           if [ "${GITHUB_REF_NAME}" != "main" ]; then
-            echo "Releases must be created from main. Selected branch: ${GITHUB_REF_NAME}" >&2
+            echo "PyPI releases must be created from main. Selected branch: ${GITHUB_REF_NAME}" >&2
             exit 1
           fi
 
