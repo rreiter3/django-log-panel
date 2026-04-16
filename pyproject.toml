@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-log-panel"
-version = "0.1.7"
+version = "0.1.8"
 description = "Django admin log viewer supporting MongoDB and SQL databases."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -35,7 +35,7 @@ Repository = "https://github.com/rreiter3/django-log-panel"
 Issues = "https://github.com/rreiter3/django-log-panel/issues"
 
 [project.optional-dependencies]
-mongodb = ["pymongo==4.16.0"]
+mongodb = ["pymongo>=4.16.0,<5"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -81,7 +81,7 @@ fail_under = 95
 [dependency-groups]
 dev = [
     "django-stubs==6.0.2",
-    "pymongo==4.16.0",
+    "pymongo>=4.16.0,<5",
     "pytest==9.0.3",
     "pytest-cov>=6.0",
     "pytest-django>=4.9",

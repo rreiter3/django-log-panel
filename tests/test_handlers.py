@@ -4,8 +4,10 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
+from log_panel.exceptions.mongodb import MongoDBConnectionError, PyMongoNotInstalled
 from log_panel.handlers import DatabaseHandler, MongoDBHandler
 from log_panel.models import Panel
 from log_panel.signals import ThresholdAlertEvent, log_threshold_reached
@@ -313,8 +315,6 @@ def test_database_handler_emit_ignores_receiver_exceptions_for_threshold_signal(
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
 def test_mongodb_handler_raises_pymongo_not_installed_when_missing():
-    from log_panel.exceptions.mongodb import PyMongoNotInstalled
-
     handler = MongoDBHandler()
 
     with patch.dict(sys.modules, {"pymongo": None}):
@@ -324,8 +324,6 @@ def test_mongodb_handler_raises_pymongo_not_installed_when_missing():
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": None})
 def test_mongodb_handler_raises_improperly_configured_without_connection_string():
-    from django.core.exceptions import ImproperlyConfigured
-
     handler = MongoDBHandler()
 
     mock_pymongo = MagicMock()
@@ -340,8 +338,6 @@ def test_mongodb_handler_raises_improperly_configured_without_connection_string(
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": ""})
 def test_mongodb_handler_raises_improperly_configured_for_empty_connection_string():
-    from django.core.exceptions import ImproperlyConfigured
-
     handler = MongoDBHandler()
 
     mock_pymongo = MagicMock()
@@ -373,8 +369,6 @@ def test_mongodb_handler_get_collection_creates_ttl_index():
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://bad-host:27017"})
 def test_mongodb_handler_get_collection_raises_connection_error_after_retries():
-    from log_panel.exceptions.mongodb import MongoDBConnectionError
-
     handler = MongoDBHandler()
     mock_pymongo = make_pymongo_mock()
     mock_client = mock_pymongo.MongoClient.return_value
@@ -439,8 +433,6 @@ def test_mongodb_handler_emit_calls_handle_error_on_exception(log_record_factory
 
 
 def test_mongodb_connection_error_stores_attributes():
-    from log_panel.exceptions.mongodb import MongoDBConnectionError
-
     reason = ConnectionRefusedError("refused")
     exc = MongoDBConnectionError("mongodb://host:27017", reason)
 
@@ -449,8 +441,6 @@ def test_mongodb_connection_error_stores_attributes():
 
 
 def test_mongodb_connection_error_message_includes_connection_string():
-    from log_panel.exceptions.mongodb import MongoDBConnectionError
-
     exc = MongoDBConnectionError("mongodb://host:27017", Exception("timeout"))
     assert "mongodb://host:27017" in str(exc)
 
@@ -787,4 +777,4 @@ def test_mongodb_handler_indexes_created_once():
         handler.get_collection()
 
     mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
-    assert mock_collection.create_index.call_count == 3  # 3 indexes, created once each
+    assert mock_collection.create_index.call_count == 3

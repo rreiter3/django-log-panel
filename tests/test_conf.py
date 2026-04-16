@@ -1,8 +1,32 @@
+import logging
+import warnings
+
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
-from log_panel.conf import get_backend, get_database_alias, get_ranges, get_setting
+from log_panel.backends.sql import SqlBackend
+from log_panel.conf import (
+    get_backend,
+    get_database_alias,
+    get_level_colors,
+    get_permission_callback,
+    get_ranges,
+    get_setting,
+    get_thresholds,
+)
+from log_panel.handlers import DatabaseHandler, MongoDBHandler
 from log_panel.types import RangeConfig
+
+
+@pytest.fixture()
+def clean_root_logger():
+    """Remove any log_panel handlers from the root logger after test."""
+    yield
+    root = logging.getLogger()
+    for h in list(root.handlers):
+        if isinstance(h, (MongoDBHandler, DatabaseHandler)):
+            root.removeHandler(h)
 
 
 def test_get_setting_returns_default_when_not_configured():
@@ -67,16 +91,12 @@ def test_get_backend_returns_none_when_nothing_configured():
 
 @override_settings(LOG_PANEL={"DATABASE_ALIAS": "default"})
 def test_get_backend_returns_sql_backend_when_alias_configured():
-    from log_panel.backends.sql import SqlBackend
-
     backend = get_backend()
     assert isinstance(backend, SqlBackend)
 
 
 @override_settings(LOG_PANEL={"BACKEND": "log_panel.backends.sql.SqlBackend"})
 def test_get_backend_returns_explicit_backend_when_backend_key_set():
-    from log_panel.backends.sql import SqlBackend
-
     backend = get_backend()
     assert isinstance(backend, SqlBackend)
 
@@ -88,8 +108,6 @@ def test_get_backend_returns_explicit_backend_when_backend_key_set():
     }
 )
 def test_get_backend_explicit_takes_priority_over_alias():
-    from log_panel.backends.sql import SqlBackend
-
     backend = get_backend()
     assert isinstance(backend, SqlBackend)
 
@@ -99,8 +117,6 @@ def test_get_backend_explicit_takes_priority_over_alias():
     DATABASE_ROUTERS=[],
 )
 def test_ready_raises_improperly_configured_when_alias_set_without_router():
-    from django.core.exceptions import ImproperlyConfigured
-
     import log_panel
     from log_panel.apps import LogPanelConfig
 
@@ -122,8 +138,6 @@ def test_ready_does_not_raise_when_router_is_present():
 
 
 def test_thresholds_defaults():
-    from log_panel.conf import get_thresholds
-
     thresholds = get_thresholds()
     assert thresholds["WARNING"] == 1
     assert thresholds["ERROR"] == 1
@@ -132,18 +146,14 @@ def test_thresholds_defaults():
 
 @override_settings(LOG_PANEL={"THRESHOLDS": {"ERROR": 5, "WARNING": 3}})
 def test_thresholds_can_be_overridden():
-    from log_panel.conf import get_thresholds
-
     thresholds = get_thresholds()
     assert thresholds["ERROR"] == 5
     assert thresholds["WARNING"] == 3
-    assert thresholds["CRITICAL"] == 1  # default preserved
+    assert thresholds["CRITICAL"] == 1
 
 
 @override_settings(LOG_PANEL={"THRESHOLDS": {"WARNING": None}})
 def test_threshold_can_be_disabled():
-    from log_panel.conf import get_thresholds
-
     assert get_thresholds()["WARNING"] is None
 
 
@@ -156,8 +166,6 @@ def test_ready_does_not_raise_when_no_alias_configured():
 
 
 def test_get_level_colors_returns_all_defaults():
-    from log_panel.conf import get_level_colors
-
     colors = get_level_colors()
     assert colors["NOTSET"] == "#888"
     assert colors["DEBUG"] == "#888"
@@ -169,8 +177,6 @@ def test_get_level_colors_returns_all_defaults():
 
 @override_settings(LOG_PANEL={"LEVEL_COLORS": {"ERROR": "#ff0000"}})
 def test_get_level_colors_user_override_merges_with_defaults():
-    from log_panel.conf import get_level_colors
-
     colors = get_level_colors()
     assert colors["ERROR"] == "#ff0000"
     assert colors["WARNING"] == "#c0a000"
@@ -178,22 +184,17 @@ def test_get_level_colors_user_override_merges_with_defaults():
 
 @override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
 def test_get_level_colors_custom_level_added():
-    from log_panel.conf import get_level_colors
-
     colors = get_level_colors()
     assert colors["MY_AUDIT"] == "#0055aa"
     assert "ERROR" in colors
 
 
 def test_get_permission_callback_returns_none_by_default():
-    from log_panel.conf import get_permission_callback
-
     assert get_permission_callback() is None
 
 
 @override_settings(LOG_PANEL={"PERMISSION_CALLBACK": "tests.helpers.allow_all"})
 def test_get_permission_callback_returns_callable():
-    from log_panel.conf import get_permission_callback
     from tests.helpers import allow_all
 
     callback = get_permission_callback()
@@ -202,26 +203,134 @@ def test_get_permission_callback_returns_callable():
 
 @override_settings(LOG_PANEL={"PERMISSION_CALLBACK": "tests.nonexistent.func"})
 def test_get_permission_callback_raises_on_bad_path():
-    from django.core.exceptions import ImproperlyConfigured
-
-    from log_panel.conf import get_permission_callback
-
     with pytest.raises(ImproperlyConfigured, match="PERMISSION_CALLBACK"):
         get_permission_callback()
 
 
 def test_get_level_colors_includes_all_standard_levels_by_default():
-    from log_panel.conf import get_level_colors
-
     colors = get_level_colors()
     for level in ("CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"):
         assert level in colors
 
 
+def test_attach_root_handler_default_is_true():
+    assert get_setting("ATTACH_ROOT_HANDLER") is True
+
+
+def test_log_level_default_is_debug():
+    assert get_setting("LOG_LEVEL") == "DEBUG"
+
+
+@override_settings(
+    LOG_PANEL={
+        "CONNECTION_STRING": "mongodb://localhost:27017",
+    },
+)
+def test_ready_attaches_mongodb_handler_to_root_logger(clean_root_logger):
+    import log_panel
+    from log_panel.apps import LogPanelConfig
+
+    config = LogPanelConfig("log_panel", log_panel)
+    config.ready()
+
+    root = logging.getLogger()
+    assert any(isinstance(h, MongoDBHandler) for h in root.handlers)
+
+
+@override_settings(
+    LOG_PANEL={
+        "DATABASE_ALIAS": "logs",
+    },
+    DATABASE_ROUTERS=["log_panel.routers.LogsRouter"],
+)
+def test_ready_attaches_database_handler_to_root_logger(clean_root_logger):
+    import log_panel
+    from log_panel.apps import LogPanelConfig
+
+    config = LogPanelConfig("log_panel", log_panel)
+    config.ready()
+
+    root = logging.getLogger()
+    assert any(isinstance(h, DatabaseHandler) for h in root.handlers)
+
+
+@override_settings(
+    LOG_PANEL={
+        "CONNECTION_STRING": "mongodb://localhost:27017",
+        "ATTACH_ROOT_HANDLER": False,
+    },
+)
+def test_ready_skips_attach_when_disabled(clean_root_logger):
+    import log_panel
+    from log_panel.apps import LogPanelConfig
+
+    config = LogPanelConfig("log_panel", log_panel)
+    config.ready()
+
+    root = logging.getLogger()
+    assert not any(isinstance(h, MongoDBHandler) for h in root.handlers)
+
+
+@override_settings(
+    LOG_PANEL={
+        "CONNECTION_STRING": "mongodb://localhost:27017",
+    },
+)
+def test_ready_warns_and_skips_when_handler_already_on_root(clean_root_logger):
+    import log_panel
+    from log_panel.apps import LogPanelConfig
+
+    root = logging.getLogger()
+    existing = MongoDBHandler()
+    root.addHandler(existing)
+
+    config = LogPanelConfig("log_panel", log_panel)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        config.ready()
+
+    assert any("ATTACH_ROOT_HANDLER" in str(w.message) for w in caught)
+    mongo_handlers = [h for h in root.handlers if isinstance(h, MongoDBHandler)]
+    assert len(mongo_handlers) == 1
+
+
+@override_settings(
+    LOG_PANEL={
+        "CONNECTION_STRING": "mongodb://localhost:27017",
+        "LOG_LEVEL": "WARNING",
+    },
+)
+def test_ready_respects_log_level_setting(clean_root_logger):
+    import log_panel
+    from log_panel.apps import LogPanelConfig
+
+    config = LogPanelConfig("log_panel", log_panel)
+    config.ready()
+
+    root = logging.getLogger()
+    handler = next(h for h in root.handlers if isinstance(h, MongoDBHandler))
+    assert handler.level == logging.WARNING
+
+
+@override_settings(
+    LOG_PANEL={
+        "CONNECTION_STRING": "mongodb://localhost:27017",
+    },
+)
+def test_ready_suppresses_pymongo_logger_for_mongodb(clean_root_logger):
+    import log_panel
+    from log_panel.apps import LogPanelConfig
+
+    config = LogPanelConfig("log_panel", log_panel)
+    config.ready()
+
+    pymongo_logger = logging.getLogger("pymongo")
+    assert pymongo_logger.level == logging.WARNING
+    assert pymongo_logger.propagate is False
+
+
 @override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
 def test_get_level_colors_custom_level_preserves_defaults():
-    from log_panel.conf import get_level_colors
-
     colors = get_level_colors()
     assert colors["MY_AUDIT"] == "#0055aa"
     assert colors["ERROR"] == "#c47900"
@@ -229,32 +338,24 @@ def test_get_level_colors_custom_level_preserves_defaults():
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": ""})
 def test_get_backend_raises_when_connection_string_is_empty():
-    from django.core.exceptions import ImproperlyConfigured
-
     with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
         get_backend()
 
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": "   "})
 def test_get_backend_raises_when_connection_string_is_whitespace():
-    from django.core.exceptions import ImproperlyConfigured
-
     with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
         get_backend()
 
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": None})
 def test_get_backend_raises_when_connection_string_is_explicit_none():
-    from django.core.exceptions import ImproperlyConfigured
-
     with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
         get_backend()
 
 
 @override_settings(LOG_PANEL={"BACKEND": "log_panel.backends.mongodb.MongoDBBackend"})
 def test_get_backend_raises_when_explicit_mongodb_backend_without_connection_string():
-    from django.core.exceptions import ImproperlyConfigured
-
     with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
         get_backend()
 
@@ -266,7 +367,5 @@ def test_get_backend_raises_when_explicit_mongodb_backend_without_connection_str
     }
 )
 def test_get_backend_raises_when_explicit_mongodb_backend_with_empty_connection_string():
-    from django.core.exceptions import ImproperlyConfigured
-
     with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
         get_backend()
