@@ -64,6 +64,9 @@ class MongoDBBackend(LogsBackend):
             PyMongoNotInstalled: If the pymongo package is not installed.
             MongoDBConnectionError: If the server is unreachable after all retries.
         """
+        if self._collection is not None:
+            return self._collection
+
         import time
 
         last_exc: ServerSelectionTimeoutError | None = None
@@ -74,7 +77,9 @@ class MongoDBBackend(LogsBackend):
                     serverSelectionTimeoutMS=self.server_selection_timeout_ms,
                 )
                 client.admin.command("ping")
-                return client[self.db_name][self.collection_name]
+                self._client = client
+                self._collection = client[self.db_name][self.collection_name]
+                return self._collection
             except ServerSelectionTimeoutError as exc:
                 last_exc = exc
                 if attempt < MAX_CONNECTION_RETRIES - 1:
