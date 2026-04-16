@@ -4,7 +4,7 @@
 [![Latest on Django Packages](https://img.shields.io/badge/Django_Packages-django--log--panel-8c3c26.svg)](https://djangopackages.org/packages/p/django-log-panel/)
 
 
-`django-log-panel` collects logs from any logger configured in Django's standard `LOGGING` setting and displays them on a dashboard inspired by a status page. Each logger gets its own health card showing error and warning counts, a colour-coded activity timeline, and a drilldown into searchable, filterable log entries - all inside Django admin, with no separate service to run.
+`django-log-panel` collects logs from any logger configured in Django's standard `LOGGING` setting and displays them on a dashboard inspired by a status page. Each logger gets its own health card showing error and warning counts, a color-coded activity timeline, and a drilldown into searchable, filterable log entries - all inside Django admin, with no separate service to run.
 
 For alerting, it emits a Django signal when a logger crosses a configured threshold, leaving the response - email, Slack, webhook - entirely to the application.
 
@@ -57,11 +57,11 @@ Supports two storage backends:
 ## Key Features
 
 - **Status-page dashboard in Django admin** - a health card per logger showing total errors, warnings, and recent issues from the last hour, all without a separate service to run.
-- **Colour-coded activity timeline** - each card includes a visual timeline strip across configurable time ranges (e.g. last 24h, 30d, 90d).
+- **Color-coded activity timeline** - each card includes a visual timeline strip across configurable time ranges (e.g. last 24h, 30d, 90d).
 - **Searchable, filterable log table** - click any card to open a paginated list of log entries with level filtering and free-text message search.
 - **Two storage backends** - write logs to MongoDB (append-only, automatic TTL-based cleanup) or any Django-supported SQL database.
 - **Threshold alerting via Django signals** - emits a signal when a logger crosses a configured per-level count within a rolling one-hour window, leaving the response entirely to the application.
-- **Customisable log level colors** - configure hex colours for any log level badge, including custom Python log levels, which are automatically added to the filter dropdown.
+- **Customisable log level colors** - configure hex colors for any log level badge, including custom Python log levels, which are automatically added to the filter dropdown.
 - **Configurable timeline ranges** - define your own time range slots to match how you think about your traffic patterns.
 - **Configurable alert thresholds** - set per-level count thresholds before the signal fires, or disable alerting for specific levels entirely.
 - **Configurable page title and table size** - customise the panel heading and how many rows appear per page in the log detail view.
@@ -417,7 +417,7 @@ def on_threshold_reached(sender, event: ThresholdAlertEvent, **kwargs):
 The admin view is optimised for browsing logger health first and raw entries second.
 
 - The landing page shows one card per logger.
-- Each card shows total errors, total warnings, recent issues from the last hour, and a colour-coded timeline strip.
+- Each card shows total errors, total warnings, recent issues from the last hour, and a color-coded timeline strip.
 - Available time ranges are configured through `LOG_PANEL["RANGES"]` (default: 24h, 30d, 90d).
 - Clicking a logger opens a paginated table view.
 - The table view supports filtering by level and free-text search against the message body.

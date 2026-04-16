@@ -5,6 +5,7 @@ import pytest
 
 from log_panel.types import (
     ERROR_LEVELS,
+    CardFilter,
     LogLevel,
     RangeConfig,
     RangeUnit,
@@ -97,3 +98,16 @@ def test_range_config_is_frozen():
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         range_config.slots = 99  # ty: ignore[invalid-assignment]
+
+
+def test_card_filter_values():
+    assert CardFilter.ALL == ""
+    assert CardFilter.ERRORS == "errors"
+    assert CardFilter.WARNINGS == "warnings"
+
+
+def test_card_filter_membership():
+    assert "" in CardFilter._value2member_map_
+    assert "errors" in CardFilter._value2member_map_
+    assert "warnings" in CardFilter._value2member_map_
+    assert "bogus" not in CardFilter._value2member_map_

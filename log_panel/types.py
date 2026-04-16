@@ -24,8 +24,16 @@ ERROR_LEVELS: tuple[Literal[LogLevel.ERROR], Literal[LogLevel.CRITICAL]] = (
 )
 
 
+class CardFilter(StrEnum):
+    """Valid filter values for the cards dashboard."""
+
+    ALL = ""
+    ERRORS = "errors"
+    WARNINGS = "warnings"
+
+
 class SlotStatus(StrEnum):
-    """Colour-coded status for a single timeline slot."""
+    """Color-coded status for a single timeline slot."""
 
     ERROR = "error"
     WARNING = "warning"

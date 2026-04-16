@@ -1,4 +1,25 @@
 <style>
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1em;
+    flex-wrap: wrap;
+    gap: 0.5em;
+  }
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 1em;
+  }
+  .range-label {
+    font-size: 0.85em;
+    color: #666;
+  }
+  .range-buttons {
+    display: flex;
+    gap: 4px;
+  }
   .range-btn {
     padding: 3px 10px;
     border-radius: 4px;
@@ -10,6 +31,43 @@
   }
   .range-btn--active {
     background: #417690;
+    color: #fff !important;
+  }
+
+  .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .filter-label {
+    font-size: 0.68em;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .filter-buttons {
+    display: flex;
+    gap: 4px;
+  }
+  .filter-btn {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: bold;
+    text-decoration: none;
+    background: #e8e8e8;
+    color: #333;
+  }
+  .filter-btn--active {
+    background: #417690;
+    color: #fff !important;
+  }
+  .filter-btn--active-warning {
+    background: {{ level_colors.WARNING }};
+    color: #fff !important;
+  }
+  .filter-btn--active-error {
+    background: {{ level_colors.ERROR }};
     color: #fff !important;
   }
 
@@ -96,7 +154,10 @@
 
     .status-row          { border-color: #3a3a3a; background: #1a1a1a; }
     .status-logger-name  { color: #6bafc6; }
+    .range-label         { color: #999; }
     .range-btn           { background: #2a2a2a; color: #ccc; }
+    .filter-btn          { background: #2a2a2a; color: #ccc; }
+    .filter-label        { color: #666; }
     .badge-section       { color: #666; }
     .timeline-slot.ok    { background: #2d7a5f; }
     .timeline-slot.empty { background: #2a2a2a; }
@@ -104,7 +165,10 @@
   }
   [data-theme="dark"] .status-row          { border-color: #3a3a3a; background: #1a1a1a; }
   [data-theme="dark"] .status-logger-name  { color: #6bafc6; }
+  [data-theme="dark"] .range-label         { color: #999; }
   [data-theme="dark"] .range-btn           { background: #2a2a2a; color: #ccc; }
+  [data-theme="dark"] .filter-btn          { background: #2a2a2a; color: #ccc; }
+  [data-theme="dark"] .filter-label        { color: #666; }
   [data-theme="dark"] .badge-section       { color: #666; }
   [data-theme="dark"] .timeline-slot.ok    { background: #2d7a5f; }
   [data-theme="dark"] .timeline-slot.empty { background: #2a2a2a; }

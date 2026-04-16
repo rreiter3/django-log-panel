@@ -1,0 +1,19 @@
+{% load i18n %}
+
+<div class="filter-group">
+  <span class="filter-label">{% trans "Filters" %}</span>
+  <div class="filter-buttons">
+    <a href="?range={{ selected_range }}"
+       class="filter-btn {% if selected_filter == '' %}filter-btn--active{% endif %}">
+      {% trans "All" %}
+    </a>
+    <a href="?range={{ selected_range }}&filter=warnings"
+       class="filter-btn {% if selected_filter == 'warnings' %}filter-btn--active-warning{% endif %}">
+      {% trans "Warning Only" %}
+    </a>
+    <a href="?range={{ selected_range }}&filter=errors"
+       class="filter-btn {% if selected_filter == 'errors' %}filter-btn--active-error{% endif %}">
+      {% trans "Errors Only" %}
+    </a>
+  </div>
+</div>
