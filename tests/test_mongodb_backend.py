@@ -554,7 +554,7 @@ def test_mongodb_backend_get_collection_returns_collection():
     assert collection is mock_client["mydb"]["mylogs"]
 
 
-def test_mongodb_backend_get_collection_raises_on_timeout():
+def test_mongodb_backend_get_collection_raises_after_retries():
     import log_panel.backends.mongodb as mongodb_mod
     from log_panel.exceptions.mongodb import MongoDBConnectionError
 
@@ -565,8 +565,31 @@ def test_mongodb_backend_get_collection_raises_on_timeout():
     )
 
     with patch("log_panel.backends.mongodb.MongoClient", return_value=mock_client):
-        with pytest.raises(MongoDBConnectionError):
-            backend.get_collection()
+        with patch("time.sleep") as mock_sleep:
+            with pytest.raises(MongoDBConnectionError):
+                backend.get_collection()
+
+    assert mock_client.admin.command.call_count == 5
+    assert mock_sleep.call_count == 4
+    delays = [call.args[0] for call in mock_sleep.call_args_list]
+    assert delays == [0.5, 1.0, 2.0, 4.0]
+
+
+def test_mongodb_backend_get_collection_succeeds_on_retry():
+    import log_panel.backends.mongodb as mongodb_mod
+
+    backend = MongoDBBackend(connection_string="mongodb://localhost:27017")
+    mock_client = MagicMock()
+
+    timeout_exc = mongodb_mod.ServerSelectionTimeoutError("timeout")
+    mock_client.admin.command.side_effect = [timeout_exc, timeout_exc, {"ok": 1.0}]
+
+    with patch("log_panel.backends.mongodb.MongoClient", return_value=mock_client):
+        with patch("time.sleep"):
+            collection = backend.get_collection()
+
+    assert mock_client.admin.command.call_count == 3
+    assert collection is mock_client["log_panel"]["logs"]
 
 
 def test_get_logger_cards_returns_assembled_rows():

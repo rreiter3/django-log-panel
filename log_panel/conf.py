@@ -3,6 +3,7 @@ from types import ModuleType
 from typing import Any
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 from log_panel.types import RangeConfig, RangeUnit
 
@@ -63,15 +64,20 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
+def get_user_config() -> dict[str, Any]:
+    """Return the user configuration dict from Django settings, or an empty dict."""
+    return getattr(settings, "LOG_PANEL", {})
+
+
 def get_setting(key: str) -> Any:
     """Return a value from LOG_PANEL in Django settings, falling back to DEFAULTS."""
-    user_config: dict[str, Any] = getattr(settings, "LOG_PANEL", {})
+    user_config: dict[str, Any] = get_user_config()
     return user_config.get(key, DEFAULTS[key])
 
 
 def get_thresholds() -> dict[str, int | None]:
     """Return per-level alert thresholds, merging user config with defaults."""
-    user_config: dict[str, Any] = getattr(settings, "LOG_PANEL", {})
+    user_config: dict[str, Any] = get_user_config()
     user_thresholds: dict[str, int | None] = user_config.get("THRESHOLDS", {})
     return {**DEFAULTS["THRESHOLDS"], **user_thresholds}
 
@@ -85,6 +91,37 @@ def get_ranges() -> dict[str, RangeConfig]:
 def get_database_alias() -> str | None:
     """Return the database alias to use for log storage, or None if not configured."""
     return get_setting(key="DATABASE_ALIAS")
+
+
+def _build_mongodb_backend(connection_string: str | None = None):
+    """Validate CONNECTION_STRING and return a MongoDBBackend instance.
+
+    Args:
+        connection_string: Pre-validated connection URI. When *None* the value
+            is read (and validated) from ``LOG_PANEL['CONNECTION_STRING']``.
+
+    Raises:
+        ImproperlyConfigured: If the connection string is missing or empty.
+    """
+    if connection_string is None:
+        raw: str | None = get_setting(key="CONNECTION_STRING")
+        connection_string = raw.strip() if isinstance(raw, str) else raw
+
+    if not connection_string:
+        raise ImproperlyConfigured(
+            'LOG_PANEL["CONNECTION_STRING"] must be a valid MongoDB connection URI '
+            "when using the MongoDB backend."
+        )
+
+    from log_panel.backends.mongodb import MongoDBBackend
+
+    return MongoDBBackend(
+        connection_string=connection_string,
+        db_name=get_setting(key="DB_NAME"),
+        collection=get_setting(key="COLLECTION"),
+        server_selection_timeout_ms=get_setting(key="SERVER_SELECTION_TIMEOUT_MS"),
+        allow_disk_use=get_setting(key="ALLOW_DISK_USE"),
+    )
 
 
 def get_backend():
@@ -108,6 +145,12 @@ def get_backend():
         module_path, class_name = explicit.rsplit(".", 1)
         module: ModuleType = import_module(name=module_path)
         cls: Any = getattr(module, class_name)
+
+        from log_panel.backends.mongodb import MongoDBBackend
+
+        if issubclass(cls, MongoDBBackend):
+            return _build_mongodb_backend()
+
         backend: LogsBackend = cls()
         return backend
 
@@ -116,17 +159,19 @@ def get_backend():
 
         return SqlBackend()
 
+    user_config: dict[str, Any] = get_user_config()
     conn_str: str | None = get_setting(key="CONNECTION_STRING")
-    if conn_str:
-        from log_panel.backends.mongodb import MongoDBBackend
+    conn_str_stripped: str | None = (
+        conn_str.strip() if isinstance(conn_str, str) else conn_str
+    )
 
-        return MongoDBBackend(
-            connection_string=conn_str,
-            db_name=get_setting(key="DB_NAME"),
-            collection=get_setting(key="COLLECTION"),
-            server_selection_timeout_ms=get_setting(key="SERVER_SELECTION_TIMEOUT_MS"),
-            allow_disk_use=get_setting(key="ALLOW_DISK_USE"),
-        )
+    if "CONNECTION_STRING" in user_config and not conn_str_stripped:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured('LOG_PANEL["CONNECTION_STRING"] is set but empty.')
+
+    if conn_str_stripped:
+        return _build_mongodb_backend(conn_str_stripped)
 
     return None
 

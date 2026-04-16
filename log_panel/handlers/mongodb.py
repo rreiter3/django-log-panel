@@ -41,21 +41,35 @@ class MongoDBHandler(Handler):
             raise PyMongoNotInstalled() from exc
 
         conn_str: str | None = get_setting(key="CONNECTION_STRING")
-        if not conn_str:
-            raise ValueError(
-                'log_panel.handlers.MongoDBHandler requires LOG_PANEL["CONNECTION_STRING"]'
+        if not conn_str or not (isinstance(conn_str, str) and conn_str.strip()):
+            from django.core.exceptions import ImproperlyConfigured
+
+            raise ImproperlyConfigured(
+                'log_panel.handlers.MongoDBHandler requires LOG_PANEL["CONNECTION_STRING"] '
+                "to be a valid MongoDB connection URI."
             )
+        conn_str = conn_str.strip()
 
         db_name: str = get_setting(key="DB_NAME")
         collection_name: str = get_setting(key="COLLECTION")
         ttl_days: int = get_setting(key="TTL_DAYS")
         timeout_ms: int = get_setting(key="SERVER_SELECTION_TIMEOUT_MS")
 
-        try:
-            client = MongoClient(conn_str, serverSelectionTimeoutMS=timeout_ms)
-            client.admin.command("ping")
-        except ServerSelectionTimeoutError as exc:
-            raise MongoDBConnectionError(conn_str, exc) from exc
+        last_exc: Exception | None = None
+        for attempt in range(5):
+            try:
+                client = MongoClient(conn_str, serverSelectionTimeoutMS=timeout_ms)
+                client.admin.command("ping")
+                break
+            except ServerSelectionTimeoutError as exc:
+                last_exc = exc
+                if attempt < 4:
+                    import time
+
+                    time.sleep(0.5 * 2**attempt)
+        else:
+            assert last_exc is not None
+            raise MongoDBConnectionError(conn_str, last_exc) from last_exc
 
         collection = client[db_name][collection_name]
         collection.create_index(

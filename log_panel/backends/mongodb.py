@@ -16,6 +16,10 @@ except ImportError as exc:
     raise PyMongoNotInstalled() from exc
 
 
+MAX_CONNECTION_RETRIES: int = 5
+RETRY_BASE_DELAY: float = 0.5
+
+
 class MongoDBBackend(LogsBackend):
     """Read log data from a MongoDB collection using aggregation pipelines."""
 
@@ -49,21 +53,31 @@ class MongoDBBackend(LogsBackend):
     def get_collection(self) -> Any:
         """Return a PyMongo Collection object for the configured database/collection.
 
+        Retries the connection up to ``MAX_CONNECTION_RETRIES`` times with
+        exponential backoff before giving up.
+
         Raises:
             PyMongoNotInstalled: If the pymongo package is not installed.
-            MongoDBConnectionError: If the server is unreachable within the timeout.
+            MongoDBConnectionError: If the server is unreachable after all retries.
         """
-        try:
-            client: MongoClient = MongoClient(
-                self.connection_string,
-                serverSelectionTimeoutMS=self.server_selection_timeout_ms,
-            )
-            # Force an actual connection attempt to detect unreachable servers early.
-            client.admin.command("ping")
-        except ServerSelectionTimeoutError as exc:
-            raise MongoDBConnectionError(self.connection_string, exc) from exc
+        import time
 
-        return client[self.db_name][self.collection_name]
+        last_exc: ServerSelectionTimeoutError | None = None
+        for attempt in range(MAX_CONNECTION_RETRIES):
+            try:
+                client: MongoClient = MongoClient(
+                    self.connection_string,
+                    serverSelectionTimeoutMS=self.server_selection_timeout_ms,
+                )
+                client.admin.command("ping")
+                return client[self.db_name][self.collection_name]
+            except ServerSelectionTimeoutError as exc:
+                last_exc = exc
+                if attempt < MAX_CONNECTION_RETRIES - 1:
+                    time.sleep(RETRY_BASE_DELAY * 2**attempt)
+
+        assert last_exc is not None
+        raise MongoDBConnectionError(self.connection_string, last_exc) from last_exc
 
     def get_logger_cards(
         self, now_utc: datetime, range_config: RangeConfig, app_timezone: tzinfo
