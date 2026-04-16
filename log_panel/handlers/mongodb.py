@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime
 from functools import partial
 from logging import Formatter, Handler, LogRecord
@@ -20,14 +21,25 @@ class MongoDBHandler(Handler):
         }
     """
 
+    _local = threading.local()
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._client: Any = None
+        self._collection: Any = None
+        self._indexes_ensured: bool = False
+
     def get_collection(self) -> Any:
-        """Return a PyMongo Collection, connecting and creating indexes on each call.
+        """Return a cached PyMongo Collection, connecting lazily on first call.
 
         Raises:
             PyMongoNotInstalled: If the pymongo package is not installed.
             MongoDBConnectionError: If the server is unreachable within the timeout.
             ValueError: If no connection string is configured.
         """
+        if self._collection is not None:
+            return self._collection
+
         from log_panel.conf import get_setting
         from log_panel.exceptions.mongodb import (
             MongoDBConnectionError,
@@ -41,41 +53,68 @@ class MongoDBHandler(Handler):
             raise PyMongoNotInstalled() from exc
 
         conn_str: str | None = get_setting(key="CONNECTION_STRING")
-        if not conn_str:
-            raise ValueError(
-                'log_panel.handlers.MongoDBHandler requires LOG_PANEL["CONNECTION_STRING"]'
+        if not conn_str or not (isinstance(conn_str, str) and conn_str.strip()):
+            from django.core.exceptions import ImproperlyConfigured
+
+            raise ImproperlyConfigured(
+                'log_panel.handlers.MongoDBHandler requires LOG_PANEL["CONNECTION_STRING"] '
+                "to be a valid MongoDB connection URI."
             )
+        conn_str = conn_str.strip()
 
         db_name: str = get_setting(key="DB_NAME")
         collection_name: str = get_setting(key="COLLECTION")
-        ttl_days: int = get_setting(key="TTL_DAYS")
         timeout_ms: int = get_setting(key="SERVER_SELECTION_TIMEOUT_MS")
 
-        try:
-            client = MongoClient(conn_str, serverSelectionTimeoutMS=timeout_ms)
-            client.admin.command("ping")
-        except ServerSelectionTimeoutError as exc:
-            raise MongoDBConnectionError(conn_str, exc) from exc
+        last_exc: Exception | None = None
+        for attempt in range(5):
+            try:
+                client = MongoClient(conn_str, serverSelectionTimeoutMS=timeout_ms)
+                client.admin.command("ping")
+                break
+            except ServerSelectionTimeoutError as exc:
+                last_exc = exc
+                if attempt < 4:
+                    import time
 
-        collection = client[db_name][collection_name]
-        collection.create_index(
-            [("timestamp", ASCENDING)],
-            expireAfterSeconds=ttl_days * 24 * 3600,
-            name="ttl_index",
-        )
-        collection.create_index(
-            [
-                ("timestamp", ASCENDING),
-                ("logger_name", ASCENDING),
-                ("level", ASCENDING),
-            ],
-            name="timestamp_logger_level_idx",
-        )
-        collection.create_index(
-            [("logger_name", ASCENDING), ("timestamp", -1)],
-            name="logger_name_timestamp_idx",
-        )
-        return collection
+                    time.sleep(0.5 * 2**attempt)
+        else:
+            assert last_exc is not None
+            raise MongoDBConnectionError(conn_str, last_exc) from last_exc
+
+        self._client = client
+        self._collection = client[db_name][collection_name]
+
+        if not self._indexes_ensured:
+            ttl_days: int = get_setting(key="TTL_DAYS")
+            self._collection.create_index(
+                [("timestamp", ASCENDING)],
+                expireAfterSeconds=ttl_days * 24 * 3600,
+                name="ttl_index",
+            )
+            self._collection.create_index(
+                [
+                    ("timestamp", ASCENDING),
+                    ("logger_name", ASCENDING),
+                    ("level", ASCENDING),
+                ],
+                name="timestamp_logger_level_idx",
+            )
+            self._collection.create_index(
+                [("logger_name", ASCENDING), ("timestamp", -1)],
+                name="logger_name_timestamp_idx",
+            )
+            self._indexes_ensured = True
+
+        return self._collection
+
+    def close(self) -> None:
+        """Close the cached MongoClient and release resources."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+            self._collection = None
+        super().close()
 
     @staticmethod
     def count_matching_records(
@@ -95,6 +134,9 @@ class MongoDBHandler(Handler):
 
     def emit(self, record: LogRecord) -> None:
         """Format and insert a log record document into MongoDB."""
+        if getattr(self._local, "emitting", False):
+            return
+        self._local.emitting = True
         try:
             collection: Any = self.get_collection()
             doc: dict = {
@@ -127,3 +169,5 @@ class MongoDBHandler(Handler):
             )
         except Exception:
             self.handleError(record)
+        finally:
+            self._local.emitting = False

@@ -31,5 +31,5 @@ class MongoDBConnectionError(ConnectionError):
         super().__init__(
             f"Could not connect to MongoDB at {connection_string!r}. "
             f"Reason: {reason}. "
-            f'Check that the server is running and LOG_PANEL["CONNECTION_STRING"] is correct.'
+            f"Check that the server is running and {connection_string!r} is correct."
         )

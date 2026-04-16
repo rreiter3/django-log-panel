@@ -323,7 +323,9 @@ def test_mongodb_handler_raises_pymongo_not_installed_when_missing():
 
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": None})
-def test_mongodb_handler_raises_value_error_without_connection_string():
+def test_mongodb_handler_raises_improperly_configured_without_connection_string():
+    from django.core.exceptions import ImproperlyConfigured
+
     handler = MongoDBHandler()
 
     mock_pymongo = MagicMock()
@@ -332,7 +334,23 @@ def test_mongodb_handler_raises_value_error_without_connection_string():
     with patch.dict(
         sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": MagicMock()}
     ):
-        with pytest.raises(ValueError, match="CONNECTION_STRING"):
+        with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
+            handler.get_collection()
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": ""})
+def test_mongodb_handler_raises_improperly_configured_for_empty_connection_string():
+    from django.core.exceptions import ImproperlyConfigured
+
+    handler = MongoDBHandler()
+
+    mock_pymongo = MagicMock()
+    mock_pymongo.ASCENDING = 1
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": MagicMock()}
+    ):
+        with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
             handler.get_collection()
 
 
@@ -354,7 +372,7 @@ def test_mongodb_handler_get_collection_creates_ttl_index():
 
 
 @override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://bad-host:27017"})
-def test_mongodb_handler_get_collection_raises_connection_error_on_timeout():
+def test_mongodb_handler_get_collection_raises_connection_error_after_retries():
     from log_panel.exceptions.mongodb import MongoDBConnectionError
 
     handler = MongoDBHandler()
@@ -367,8 +385,32 @@ def test_mongodb_handler_get_collection_raises_connection_error_on_timeout():
     with patch.dict(
         sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
     ):
-        with pytest.raises(MongoDBConnectionError):
+        with patch("time.sleep") as mock_sleep:
+            with pytest.raises(MongoDBConnectionError):
+                handler.get_collection()
+
+    assert mock_client.admin.command.call_count == 5
+    assert mock_sleep.call_count == 4
+    delays = [call.args[0] for call in mock_sleep.call_args_list]
+    assert delays == [0.5, 1.0, 2.0, 4.0]
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_get_collection_succeeds_on_third_retry():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+    mock_client = mock_pymongo.MongoClient.return_value
+
+    timeout_exc = mock_pymongo.errors.ServerSelectionTimeoutError("timeout")
+    mock_client.admin.command.side_effect = [timeout_exc, timeout_exc, {"ok": 1.0}]
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        with patch("time.sleep"):
             handler.get_collection()
+
+    assert mock_client.admin.command.call_count == 3
 
 
 def test_mongodb_handler_emit_inserts_document(log_record_factory):
@@ -678,3 +720,71 @@ def test_mongodb_handler_emit_ignores_receiver_exceptions_for_threshold_signal(
         log_threshold_reached.disconnect(dispatch_uid=dispatch_uid)
 
     assert len(collection.docs) == 1
+
+
+def test_mongodb_handler_emit_reentrant_call_is_silently_dropped(log_record_factory):
+    handler = MongoDBHandler()
+    collection = MongoCollection()
+    call_count = 0
+
+    def re_get_collection():
+        nonlocal call_count
+        call_count += 1
+        handler.emit(log_record_factory(msg="nested log"))
+        return collection
+
+    with patch.object(handler, "get_collection", side_effect=re_get_collection):
+        handler.emit(log_record_factory(msg="outer log"))
+
+    assert call_count == 1
+    assert len(collection.docs) == 1
+    assert collection.docs[0]["message"] == "outer log"
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_get_collection_caches_client():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        first = handler.get_collection()
+        second = handler.get_collection()
+
+    assert first is second
+    mock_pymongo.MongoClient.assert_called_once()
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_close_resets_cached_connection():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        handler.get_collection()
+        handler.close()
+
+        assert handler._client is None
+        assert handler._collection is None
+
+        handler.get_collection()
+
+    assert mock_pymongo.MongoClient.call_count == 2
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_indexes_created_once():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        handler.get_collection()
+        handler.get_collection()
+
+    mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
+    assert mock_collection.create_index.call_count == 3  # 3 indexes, created once each

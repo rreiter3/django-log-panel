@@ -20,6 +20,16 @@ def factory():
     return RequestFactory()
 
 
+def make_rows():
+    """Return a mix of logger rows with varying error/warning counts."""
+    return [
+        {"logger_name": "app.clean", "total_errors": 0, "total_warnings": 0},
+        {"logger_name": "app.warn", "total_errors": 0, "total_warnings": 3},
+        {"logger_name": "app.err", "total_errors": 5, "total_warnings": 0},
+        {"logger_name": "app.both", "total_errors": 2, "total_warnings": 1},
+    ]
+
+
 def make_backend(rows=None, logs=None, total=0):
     backend = MagicMock()
     backend.get_logger_cards.return_value = rows or []
@@ -310,3 +320,167 @@ def test_log_table_context_level_colors_includes_custom_level(panel_admin, facto
     request = factory.get("/")
     ctx = panel_admin._log_table_context(request, None, "myapp", None)
     assert "MY_AUDIT" in ctx["level_colors"]
+
+
+def test_card_list_filter_defaults_to_all(factory):
+    from log_panel.filters import CardListFilter
+    from log_panel.types import CardFilter
+
+    request = factory.get("/")
+    f = CardListFilter(request)
+    assert f.value is CardFilter.ALL
+
+
+def test_card_list_filter_accepts_errors(factory):
+    from log_panel.filters import CardListFilter
+    from log_panel.types import CardFilter
+
+    request = factory.get("/", {"filter": "errors"})
+    f = CardListFilter(request)
+    assert f.value is CardFilter.ERRORS
+
+
+def test_card_list_filter_accepts_warnings(factory):
+    from log_panel.filters import CardListFilter
+    from log_panel.types import CardFilter
+
+    request = factory.get("/", {"filter": "warnings"})
+    f = CardListFilter(request)
+    assert f.value is CardFilter.WARNINGS
+
+
+def test_card_list_filter_unknown_falls_back_with_message(factory):
+    from django.contrib.messages.storage.fallback import FallbackStorage
+
+    from log_panel.filters import CardListFilter
+    from log_panel.types import CardFilter
+
+    request = factory.get("/", {"filter": "bogus"})
+    request.session = "session"
+    request._messages = FallbackStorage(request)
+
+    f = CardListFilter(request)
+    assert f.value is CardFilter.ALL
+
+    stored = list(request._messages)
+    assert len(stored) == 1
+    assert "bogus" in str(stored[0])
+
+
+def test_card_list_filter_apply_all_returns_every_row(factory):
+    from log_panel.filters import CardListFilter
+
+    request = factory.get("/")
+    f = CardListFilter(request)
+    assert len(f.apply(make_rows())) == 4
+
+
+def test_card_list_filter_apply_errors_keeps_only_error_rows(factory):
+    from log_panel.filters import CardListFilter
+
+    request = factory.get("/", {"filter": "errors"})
+    f = CardListFilter(request)
+    result = f.apply(make_rows())
+    assert all(r["total_errors"] > 0 for r in result)
+    assert {r["logger_name"] for r in result} == {"app.err", "app.both"}
+
+
+def test_card_list_filter_apply_warnings_keeps_only_warning_rows(factory):
+    from log_panel.filters import CardListFilter
+
+    request = factory.get("/", {"filter": "warnings"})
+    f = CardListFilter(request)
+    result = f.apply(make_rows())
+    assert all(r["total_warnings"] > 0 for r in result)
+    assert {r["logger_name"] for r in result} == {"app.warn", "app.both"}
+
+
+def test_cards_context_selected_filter_in_context(panel_admin, factory):
+    from log_panel.types import CardFilter
+
+    request = factory.get("/", {"filter": "errors"})
+    ctx = panel_admin._logger_cards_context(request, None, None)
+    assert ctx["selected_filter"] is CardFilter.ERRORS
+
+
+def test_cards_context_filter_applied_to_rows(panel_admin, factory):
+    backend = make_backend(rows=make_rows())
+    request = factory.get("/", {"filter": "errors"})
+    ctx = panel_admin._logger_cards_context(request, backend, None)
+    assert all(r["total_errors"] > 0 for r in ctx["logger_rows"])
+    assert {r["logger_name"] for r in ctx["logger_rows"]} == {"app.err", "app.both"}
+
+
+def test_table_list_filter_defaults(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get("/")
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.level == ""
+    assert f.search == ""
+    assert f.page == 1
+    assert f.timestamp_from is None
+    assert f.timestamp_to is None
+
+
+def test_table_list_filter_reads_level_and_search(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get("/", {"level": "ERROR", "search": "db"})
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.level == "ERROR"
+    assert f.search == "db"
+
+
+def test_table_list_filter_valid_page(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get("/", {"page": "3"})
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.page == 3
+
+
+def test_table_list_filter_invalid_page_defaults_to_1(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get("/", {"page": "abc"})
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.page == 1
+
+
+def test_table_list_filter_page_zero_clamped_to_1(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get("/", {"page": "0"})
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.page == 1
+
+
+def test_table_list_filter_parses_timestamps(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get(
+        "/",
+        {"timestamp_from": "2024-06-15T10:00", "timestamp_to": "2024-06-15T14:00"},
+    )
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.timestamp_from is not None
+    assert f.timestamp_to is not None
+    assert f.timestamp_from.hour == 10
+    assert f.timestamp_to.hour == 14
+    assert f.timestamp_from_str == "2024-06-15T10:00"
+    assert f.timestamp_to_str == "2024-06-15T14:00"
+
+
+def test_table_list_filter_invalid_timestamp_returns_none(factory):
+    from log_panel.filters import TableListFilter
+
+    request = factory.get("/", {"timestamp_from": "not-a-date"})
+    f = TableListFilter(request, app_timezone=_get_tz())
+    assert f.timestamp_from is None
+
+
+def _get_tz():
+    from django.utils import timezone as django_timezone
+
+    return django_timezone.get_default_timezone()
