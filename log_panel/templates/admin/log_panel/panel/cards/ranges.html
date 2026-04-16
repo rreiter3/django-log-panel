@@ -1,13 +1,17 @@
 {% load i18n %}
 
-<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1em;">
-  <span style="font-size:0.85em; color:#666;">{{ range_label }}</span>
-  <div style="display:flex; gap:4px;">
-    {% for r in ranges %}
-      <a href="?range={{ r }}"
-         class="range-btn {% if selected_range == r %}range-btn--active{% endif %}">
-        {{ r }}
-      </a>
-    {% endfor %}
+<div class="toolbar">
+  <div class="toolbar-left">
+    <span class="range-label">{{ range_label }}</span>
+    <div class="range-buttons">
+      {% for r in ranges %}
+        <a href="?range={{ r }}{% if selected_filter %}&filter={{ selected_filter }}{% endif %}"
+           class="range-btn {% if selected_range == r %}range-btn--active{% endif %}">
+          {{ r }}
+        </a>
+      {% endfor %}
+    </div>
   </div>
+
+  {% include "admin/log_panel/panel/cards/filter.html" %}
 </div>
