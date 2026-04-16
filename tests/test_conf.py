@@ -225,3 +225,48 @@ def test_get_level_colors_custom_level_preserves_defaults():
     colors = get_level_colors()
     assert colors["MY_AUDIT"] == "#0055aa"
     assert colors["ERROR"] == "#c47900"
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": ""})
+def test_get_backend_raises_when_connection_string_is_empty():
+    from django.core.exceptions import ImproperlyConfigured
+
+    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
+        get_backend()
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "   "})
+def test_get_backend_raises_when_connection_string_is_whitespace():
+    from django.core.exceptions import ImproperlyConfigured
+
+    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
+        get_backend()
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": None})
+def test_get_backend_raises_when_connection_string_is_explicit_none():
+    from django.core.exceptions import ImproperlyConfigured
+
+    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
+        get_backend()
+
+
+@override_settings(LOG_PANEL={"BACKEND": "log_panel.backends.mongodb.MongoDBBackend"})
+def test_get_backend_raises_when_explicit_mongodb_backend_without_connection_string():
+    from django.core.exceptions import ImproperlyConfigured
+
+    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
+        get_backend()
+
+
+@override_settings(
+    LOG_PANEL={
+        "BACKEND": "log_panel.backends.mongodb.MongoDBBackend",
+        "CONNECTION_STRING": "",
+    }
+)
+def test_get_backend_raises_when_explicit_mongodb_backend_with_empty_connection_string():
+    from django.core.exceptions import ImproperlyConfigured
+
+    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
+        get_backend()
