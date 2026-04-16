@@ -3,6 +3,8 @@ import logging
 import pytest
 from django.utils import timezone
 
+from log_panel.models import Panel
+
 
 @pytest.fixture
 def log_record_factory():
@@ -36,7 +38,6 @@ def log_record_factory():
 @pytest.fixture
 def panel_factory(db):
     """Return a callable that creates Panel instances."""
-    from log_panel.models import Panel
 
     def make_panel(**kwargs):
         defaults = {

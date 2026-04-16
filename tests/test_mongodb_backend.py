@@ -5,8 +5,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import log_panel.backends.mongodb as mongodb_mod
 from log_panel.backends.base import LogsBackend
 from log_panel.backends.mongodb import MongoDBBackend
+from log_panel.exceptions.mongodb import MongoDBConnectionError
 from log_panel.types import RangeConfig, RangeUnit, SlotStatus
 
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -555,9 +557,6 @@ def test_mongodb_backend_get_collection_returns_collection():
 
 
 def test_mongodb_backend_get_collection_raises_after_retries():
-    import log_panel.backends.mongodb as mongodb_mod
-    from log_panel.exceptions.mongodb import MongoDBConnectionError
-
     backend = MongoDBBackend(connection_string="mongodb://bad-host:27017")
     mock_client = MagicMock()
     mock_client.admin.command.side_effect = mongodb_mod.ServerSelectionTimeoutError(
@@ -576,8 +575,6 @@ def test_mongodb_backend_get_collection_raises_after_retries():
 
 
 def test_mongodb_backend_get_collection_succeeds_on_retry():
-    import log_panel.backends.mongodb as mongodb_mod
-
     backend = MongoDBBackend(connection_string="mongodb://localhost:27017")
     mock_client = MagicMock()
 

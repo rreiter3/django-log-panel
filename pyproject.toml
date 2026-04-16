@@ -4,16 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-log-panel"
-version = "0.1.7"
+version = "0.1.8"
 description = "Django admin log viewer supporting MongoDB and SQL databases."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Robert Reiter", email = "reiterrobi@gmail.com" },
 ]
-keywords = ["django", "logging", "admin", "mongodb"]
+keywords = ["django", "logging", "admin", "monitoring", "observability", "mongodb", "sql"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Framework :: Django",
     "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
@@ -22,7 +22,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Topic :: System :: Logging",
+    "Topic :: System :: Monitoring",
+    "Topic :: Internet :: Log Analysis",
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -35,7 +36,7 @@ Repository = "https://github.com/rreiter3/django-log-panel"
 Issues = "https://github.com/rreiter3/django-log-panel/issues"
 
 [project.optional-dependencies]
-mongodb = ["pymongo==4.16.0"]
+mongodb = ["pymongo>=4.16.0,<5"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -81,7 +82,7 @@ fail_under = 95
 [dependency-groups]
 dev = [
     "django-stubs==6.0.2",
-    "pymongo==4.16.0",
+    "pymongo>=4.16.0,<5",
     "pytest==9.0.3",
     "pytest-cov>=6.0",
     "pytest-django>=4.9",

@@ -289,7 +289,7 @@ def test_get_logger_cards_empty_db_returns_empty_list(backend):
 def test_slot_stays_ok_when_error_count_below_error_threshold(panel_factory, backend):
     ts = datetime(2024, 6, 15, 14, 5, tzinfo=UTC)
     panel_factory(level="ERROR", timestamp=ts)
-    panel_factory(level="ERROR", timestamp=ts)  # 2 errors, threshold is 3
+    panel_factory(level="ERROR", timestamp=ts)
 
     rows = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
@@ -319,7 +319,7 @@ def test_slot_stays_ok_when_warning_count_below_warning_threshold(
 ):
     ts = datetime(2024, 6, 15, 14, 5, tzinfo=UTC)
     panel_factory(level="WARNING", timestamp=ts)
-    panel_factory(level="WARNING", timestamp=ts)  # 2 warnings, threshold is 3
+    panel_factory(level="WARNING", timestamp=ts)
 
     rows = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC

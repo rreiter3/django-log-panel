@@ -1,11 +1,16 @@
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.admin import AdminSite
+from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
+from django.utils import timezone as django_timezone
 
 from log_panel.admin import PanelAdmin
+from log_panel.filters import CardListFilter, TableListFilter
 from log_panel.models import Panel
+from log_panel.types import CardFilter, RangeConfig, RangeUnit
 
 
 @pytest.fixture
@@ -82,10 +87,6 @@ def test_logger_cards_context_uses_range_config_label(panel_admin, factory):
 def test_logger_cards_context_falls_back_to_range_key_when_no_label(
     panel_admin, factory
 ):
-    from datetime import timedelta
-
-    from log_panel.types import RangeConfig, RangeUnit
-
     no_label_range = RangeConfig(
         delta=timedelta(hours=1),
         unit=RangeUnit.HOUR,
@@ -323,38 +324,24 @@ def test_log_table_context_level_colors_includes_custom_level(panel_admin, facto
 
 
 def test_card_list_filter_defaults_to_all(factory):
-    from log_panel.filters import CardListFilter
-    from log_panel.types import CardFilter
-
     request = factory.get("/")
     f = CardListFilter(request)
     assert f.value is CardFilter.ALL
 
 
 def test_card_list_filter_accepts_errors(factory):
-    from log_panel.filters import CardListFilter
-    from log_panel.types import CardFilter
-
     request = factory.get("/", {"filter": "errors"})
     f = CardListFilter(request)
     assert f.value is CardFilter.ERRORS
 
 
 def test_card_list_filter_accepts_warnings(factory):
-    from log_panel.filters import CardListFilter
-    from log_panel.types import CardFilter
-
     request = factory.get("/", {"filter": "warnings"})
     f = CardListFilter(request)
     assert f.value is CardFilter.WARNINGS
 
 
 def test_card_list_filter_unknown_falls_back_with_message(factory):
-    from django.contrib.messages.storage.fallback import FallbackStorage
-
-    from log_panel.filters import CardListFilter
-    from log_panel.types import CardFilter
-
     request = factory.get("/", {"filter": "bogus"})
     request.session = "session"
     request._messages = FallbackStorage(request)
@@ -368,16 +355,12 @@ def test_card_list_filter_unknown_falls_back_with_message(factory):
 
 
 def test_card_list_filter_apply_all_returns_every_row(factory):
-    from log_panel.filters import CardListFilter
-
     request = factory.get("/")
     f = CardListFilter(request)
     assert len(f.apply(make_rows())) == 4
 
 
 def test_card_list_filter_apply_errors_keeps_only_error_rows(factory):
-    from log_panel.filters import CardListFilter
-
     request = factory.get("/", {"filter": "errors"})
     f = CardListFilter(request)
     result = f.apply(make_rows())
@@ -386,8 +369,6 @@ def test_card_list_filter_apply_errors_keeps_only_error_rows(factory):
 
 
 def test_card_list_filter_apply_warnings_keeps_only_warning_rows(factory):
-    from log_panel.filters import CardListFilter
-
     request = factory.get("/", {"filter": "warnings"})
     f = CardListFilter(request)
     result = f.apply(make_rows())
@@ -396,8 +377,6 @@ def test_card_list_filter_apply_warnings_keeps_only_warning_rows(factory):
 
 
 def test_cards_context_selected_filter_in_context(panel_admin, factory):
-    from log_panel.types import CardFilter
-
     request = factory.get("/", {"filter": "errors"})
     ctx = panel_admin._logger_cards_context(request, None, None)
     assert ctx["selected_filter"] is CardFilter.ERRORS
@@ -412,8 +391,6 @@ def test_cards_context_filter_applied_to_rows(panel_admin, factory):
 
 
 def test_table_list_filter_defaults(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get("/")
     f = TableListFilter(request, app_timezone=_get_tz())
     assert f.level == ""
@@ -424,8 +401,6 @@ def test_table_list_filter_defaults(factory):
 
 
 def test_table_list_filter_reads_level_and_search(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get("/", {"level": "ERROR", "search": "db"})
     f = TableListFilter(request, app_timezone=_get_tz())
     assert f.level == "ERROR"
@@ -433,32 +408,24 @@ def test_table_list_filter_reads_level_and_search(factory):
 
 
 def test_table_list_filter_valid_page(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get("/", {"page": "3"})
     f = TableListFilter(request, app_timezone=_get_tz())
     assert f.page == 3
 
 
 def test_table_list_filter_invalid_page_defaults_to_1(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get("/", {"page": "abc"})
     f = TableListFilter(request, app_timezone=_get_tz())
     assert f.page == 1
 
 
 def test_table_list_filter_page_zero_clamped_to_1(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get("/", {"page": "0"})
     f = TableListFilter(request, app_timezone=_get_tz())
     assert f.page == 1
 
 
 def test_table_list_filter_parses_timestamps(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get(
         "/",
         {"timestamp_from": "2024-06-15T10:00", "timestamp_to": "2024-06-15T14:00"},
@@ -473,14 +440,10 @@ def test_table_list_filter_parses_timestamps(factory):
 
 
 def test_table_list_filter_invalid_timestamp_returns_none(factory):
-    from log_panel.filters import TableListFilter
-
     request = factory.get("/", {"timestamp_from": "not-a-date"})
     f = TableListFilter(request, app_timezone=_get_tz())
     assert f.timestamp_from is None
 
 
 def _get_tz():
-    from django.utils import timezone as django_timezone
-
     return django_timezone.get_default_timezone()

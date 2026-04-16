@@ -19,6 +19,9 @@ DEFAULTS: dict[str, Any] = {
     "ALLOW_DISK_USE": False,
     # SQL-specific
     "DATABASE_ALIAS": None,
+    # Auto-attach handler to root logger on startup
+    "ATTACH_ROOT_HANDLER": True,
+    "LOG_LEVEL": "DEBUG",
     # Alert thresholds per log level — set to None to disable a level
     "THRESHOLDS": {
         "WARNING": 1,
