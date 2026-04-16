@@ -737,3 +737,16 @@ def test_get_log_table_passes_timestamp_filter_to_query(backend):
     assert "$lt" in query["timestamp"]
     assert query["timestamp"]["$gte"] == datetime(2024, 6, 15, 12, 0, 0)
     assert query["timestamp"]["$lt"] == datetime(2024, 6, 15, 14, 0, 0)
+
+
+def test_get_collection_caches_client(backend):
+    mock_client = MagicMock()
+
+    with patch(
+        "log_panel.backends.mongodb.MongoClient", return_value=mock_client
+    ) as mock_cls:
+        first = backend.get_collection()
+        second = backend.get_collection()
+
+    assert first is second
+    mock_cls.assert_called_once()

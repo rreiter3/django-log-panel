@@ -45,14 +45,21 @@ class MongoDBBackend(LogsBackend):
         self.collection_name: str = collection
         self.server_selection_timeout_ms: int = server_selection_timeout_ms
         self.allow_disk_use: bool = allow_disk_use
+        self._client: MongoClient | None = None
+        self._collection: Any = None
 
     def get_collection(self) -> Any:
-        """Return a PyMongo Collection object for the configured database/collection.
+        """Return a cached PyMongo Collection object for the configured database/collection.
+
+        The client is created lazily on the first call and reused.
 
         Raises:
             PyMongoNotInstalled: If the pymongo package is not installed.
             MongoDBConnectionError: If the server is unreachable within the timeout.
         """
+        if self._collection is not None:
+            return self._collection
+
         try:
             client: MongoClient = MongoClient(
                 self.connection_string,
@@ -63,7 +70,9 @@ class MongoDBBackend(LogsBackend):
         except ServerSelectionTimeoutError as exc:
             raise MongoDBConnectionError(self.connection_string, exc) from exc
 
-        return client[self.db_name][self.collection_name]
+        self._client = client
+        self._collection = client[self.db_name][self.collection_name]
+        return self._collection
 
     def get_logger_cards(
         self, now_utc: datetime, range_config: RangeConfig, app_timezone: tzinfo
