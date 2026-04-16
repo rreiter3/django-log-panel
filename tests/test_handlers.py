@@ -685,8 +685,6 @@ def test_mongodb_handler_emit_reentrant_call_is_silently_dropped(log_record_fact
     collection = MongoCollection()
     call_count = 0
 
-    original_get_collection = handler.get_collection
-
     def re_get_collection():
         nonlocal call_count
         call_count += 1
