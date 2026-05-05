@@ -120,6 +120,70 @@ class SqlBackend(LogsBackend):
             )
         return rows
 
+    def _apply_log_filters(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None,
+        timestamp_to: datetime | None,
+    ) -> PanelQuerySet:
+        qs: PanelQuerySet = self.get_queryset()
+        if logger_names is not None:
+            qs = qs.filter(logger_name__in=logger_names)
+        if levels is not None:
+            qs = qs.filter(level__in=levels)
+        if search:
+            qs = qs.filter(message__icontains=search)
+        if timestamp_from:
+            qs = qs.filter(timestamp__gte=timestamp_from)
+        if timestamp_to:
+            qs = qs.filter(timestamp__lt=timestamp_to)
+        return qs
+
+    def query_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        offset: int,
+        limit: int | None,
+        app_timezone: tzinfo,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> list[dict]:
+        qs: PanelQuerySet = self._apply_log_filters(
+            logger_names, levels, search, timestamp_from, timestamp_to
+        ).order_by("-timestamp")
+        raw_logs: PanelQuerySet = (
+            qs[offset:] if limit is None else qs[offset : offset + limit]
+        )
+        return [
+            {
+                "_id": str(object=log.pk),
+                "timestamp": log.timestamp.astimezone(app_timezone),
+                "level": log.level,
+                "logger_name": log.logger_name,
+                "message": log.message,
+                "module": log.module,
+                "pathname": log.pathname,
+                "line_number": log.line_number,
+            }
+            for log in raw_logs
+        ]
+
+    def count_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> int:
+        return self._apply_log_filters(
+            logger_names, levels, search, timestamp_from, timestamp_to
+        ).count()
+
     def get_log_table(
         self,
         logger_name: str,

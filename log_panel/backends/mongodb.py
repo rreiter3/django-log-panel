@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
@@ -12,8 +13,8 @@ from log_panel.types import LogLevel, RangeConfig, SlotStatus
 try:
     from pymongo import MongoClient
     from pymongo.errors import ServerSelectionTimeoutError
-except ImportError as exc:
-    raise PyMongoNotInstalled() from exc
+except ImportError as exc:  # pragma: no cover
+    raise PyMongoNotInstalled() from exc  # pragma: no cover
 
 
 MAX_CONNECTION_RETRIES: int = 5
@@ -51,6 +52,7 @@ class MongoDBBackend(LogsBackend):
         self.allow_disk_use: bool = allow_disk_use
         self._client: MongoClient | None = None
         self._collection: Any = None
+        self._pid: int | None = None
 
     def get_collection(self) -> Any:
         """Return a cached PyMongo Collection object for the configured database/collection.
@@ -65,7 +67,13 @@ class MongoDBBackend(LogsBackend):
             MongoDBConnectionError: If the server is unreachable after all retries.
         """
         if self._collection is not None:
-            return self._collection
+            if os.getpid() == self._pid:
+                return self._collection
+            # Forked child — discard stale references without calling client.close(),
+            # which would close the parent's OS-level socket.
+            self._client = None
+            self._collection = None
+            self._pid = None
 
         import time
 
@@ -79,6 +87,7 @@ class MongoDBBackend(LogsBackend):
                 client.admin.command("ping")
                 self._client = client
                 self._collection = client[self.db_name][self.collection_name]
+                self._pid = os.getpid()
                 return self._collection
             except ServerSelectionTimeoutError as exc:
                 last_exc = exc
@@ -144,6 +153,73 @@ class MongoDBBackend(LogsBackend):
             slots_local=slots_local,
             slot_delta=slot_delta,
         )
+
+    def _build_log_query(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None,
+        timestamp_to: datetime | None,
+    ) -> dict:
+        query: dict = {}
+        if logger_names is not None:
+            query["logger_name"] = {"$in": logger_names}
+        if levels is not None:
+            query["level"] = {"$in": levels}
+        if search:
+            query["message"] = {"$regex": search, "$options": "i"}
+        ts_filter: dict = {}
+        if timestamp_from:
+            ts_filter["$gte"] = timestamp_from.astimezone(UTC).replace(tzinfo=None)
+        if timestamp_to:
+            ts_filter["$lt"] = timestamp_to.astimezone(UTC).replace(tzinfo=None)
+        if ts_filter:
+            query["timestamp"] = ts_filter
+        return query
+
+    def query_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        offset: int,
+        limit: int | None,
+        app_timezone: tzinfo,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> list[dict]:
+        collection: Any = self.get_collection()
+        query: dict = self._build_log_query(
+            logger_names, levels, search, timestamp_from, timestamp_to
+        )
+        cursor: Any = collection.find(query).sort("timestamp", -1).skip(offset)
+        if limit is not None:
+            cursor = cursor.limit(limit)
+        return [
+            {
+                **doc,
+                "_id": str(doc["_id"]),
+                "timestamp": doc["timestamp"]
+                .replace(tzinfo=UTC)
+                .astimezone(app_timezone),
+            }
+            for doc in cursor
+        ]
+
+    def count_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> int:
+        collection: Any = self.get_collection()
+        query: dict = self._build_log_query(
+            logger_names, levels, search, timestamp_from, timestamp_to
+        )
+        return collection.count_documents(query)
 
     def get_log_table(
         self,

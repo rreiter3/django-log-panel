@@ -31,6 +31,59 @@ class LogsBackend(ABC):
         """
 
     @abstractmethod
+    def query_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        offset: int,
+        limit: int | None,
+        app_timezone: tzinfo,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> list[dict]:
+        """Return log entries with flexible multi-value filters.
+
+        Intended for use with :class:`log_panel.managers.LogManager` in
+        non-admin views.  Unlike ``get_log_table``, this method accepts lists
+        for both logger names and levels so that role-based visibility filters
+        can restrict results across multiple loggers or a minimum severity.
+
+        Each entry must contain at least:
+        { 'timestamp': datetime (tz-aware, app timezone), 'level': str,
+          'logger_name': str, 'module': str, 'message': str }
+
+        Args:
+            logger_names: Restrict to these logger names. ``None`` means all loggers.
+            levels: Restrict to these level strings. ``None`` means all levels.
+            search: Case-insensitive message substring filter, or empty string to skip.
+            offset: Number of entries to skip (0-based).
+            limit: Maximum number of entries to return. ``None`` returns all.
+            app_timezone: Project timezone for timestamp conversion.
+            timestamp_from: Optional inclusive lower bound for log timestamps.
+            timestamp_to: Optional exclusive upper bound for log timestamps.
+        """
+
+    @abstractmethod
+    def count_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> int:
+        """Return the total number of log entries matching the given filters.
+
+        Args:
+            logger_names: Restrict to these logger names. ``None`` means all loggers.
+            levels: Restrict to these level strings. ``None`` means all levels.
+            search: Case-insensitive message substring filter, or empty string to skip.
+            timestamp_from: Optional inclusive lower bound for log timestamps.
+            timestamp_to: Optional exclusive upper bound for log timestamps.
+        """
+
+    @abstractmethod
     def get_log_table(
         self,
         logger_name: str,
