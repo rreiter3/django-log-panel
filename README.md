@@ -158,6 +158,46 @@ Once configured, any standard Python logger that flows through the selected hand
 
 Full setup notes and manual `LOGGING` examples are in the backend guide.
 
+## Querying logs in custom views
+
+`LogManager` and `LogQueryset` let you fetch logs outside the admin panel — in your own views, APIs, or background tasks with a chainable filter interface that works with both SQL and MongoDB backends.
+
+Subclass `LogManager` and override `get_queryset()` to apply default role-based restrictions. The returned `LogQueryset` behaves like a standard Python sequence — iterate it, slice it, or pass it to Django's `Paginator`:
+
+```python
+from log_panel.managers import LogManager
+
+class OperatorLogManager(LogManager):
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            logger_names=["orders", "machines"],
+            min_level="WARNING",
+        )
+
+# In a Django view:
+manager = OperatorLogManager()
+qs = manager.get_queryset().filter(search=request.GET.get("q", ""))
+
+list(qs)          # all matching entries
+len(qs)           # total count
+qs[0:20]          # first 20 entries
+
+# Works directly with Django's Paginator:
+from django.core.paginator import Paginator
+paginator = Paginator(qs, 20)
+page = paginator.get_page(request.GET.get("page"))
+```
+
+Available `.filter()` arguments:
+
+| Argument | Type | Description |
+|---|---|---|
+| `logger_names` | `list[str]` | Restrict to these logger names |
+| `min_level` | `str` | Minimum severity — `"WARNING"` includes WARNING, ERROR, and CRITICAL |
+| `search` | `str` | Case-insensitive message substring |
+| `timestamp_from` | `datetime` | Inclusive lower bound |
+| `timestamp_to` | `datetime` | Exclusive upper bound |
+
 ## Advanced topics
 
 - [Backend setup and manual `LOGGING` examples](https://github.com/rreiter3/django-log-panel/blob/main/docs/backends.md)

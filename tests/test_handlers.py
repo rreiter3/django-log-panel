@@ -778,3 +778,27 @@ def test_mongodb_handler_indexes_created_once():
 
     mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
     assert mock_collection.create_index.call_count == 3
+
+
+@pytest.mark.django_db
+def test_database_handler_emit_skips_reentrant_call(log_record_factory):
+    handler = DatabaseHandler()
+    handler._local.emitting = True
+    try:
+        handler.emit(log_record_factory())
+    finally:
+        handler._local.emitting = False
+    assert Panel.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_database_handler_emit_silently_discards_programming_error(log_record_factory):
+    from django.db import ProgrammingError
+
+    handler = DatabaseHandler()
+    record = log_record_factory()
+    with patch("log_panel.models.Panel.objects") as mock_objects:
+        mock_objects.create_from_record.side_effect = ProgrammingError("no table")
+        with patch.object(handler, "handleError") as mock_handle_error:
+            handler.emit(record)
+    mock_handle_error.assert_not_called()

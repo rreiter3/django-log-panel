@@ -770,3 +770,113 @@ def test_get_collection_caches_client(backend):
 
     assert first is second
     mock_cls.assert_called_once()
+
+
+def test_build_log_query_empty_with_no_filters(backend):
+    assert backend._build_log_query(None, None, "", None, None) == {}
+
+
+def test_build_log_query_adds_logger_names_filter(backend):
+    query = backend._build_log_query(["orders", "machines"], None, "", None, None)
+    assert query["logger_name"] == {"$in": ["orders", "machines"]}
+
+
+def test_build_log_query_adds_levels_filter(backend):
+    query = backend._build_log_query(None, ["WARNING", "ERROR"], "", None, None)
+    assert query["level"] == {"$in": ["WARNING", "ERROR"]}
+
+
+def test_build_log_query_adds_search_filter(backend):
+    query = backend._build_log_query(None, None, "timeout", None, None)
+    assert query["message"] == {"$regex": "timeout", "$options": "i"}
+
+
+def test_build_log_query_adds_timestamp_from(backend):
+    ts = datetime(2024, 6, 15, 10, 0, 0, tzinfo=UTC)
+    query = backend._build_log_query(None, None, "", ts, None)
+    assert "$gte" in query["timestamp"]
+    assert "$lt" not in query["timestamp"]
+
+
+def test_build_log_query_adds_timestamp_to(backend):
+    ts = datetime(2024, 6, 15, 10, 0, 0, tzinfo=UTC)
+    query = backend._build_log_query(None, None, "", None, ts)
+    assert "$lt" in query["timestamp"]
+    assert "$gte" not in query["timestamp"]
+
+
+def test_build_log_query_adds_both_timestamp_bounds(backend):
+    ts_from = datetime(2024, 6, 15, 10, 0, 0, tzinfo=UTC)
+    ts_to = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
+    query = backend._build_log_query(None, None, "", ts_from, ts_to)
+    assert "$gte" in query["timestamp"]
+    assert "$lt" in query["timestamp"]
+
+
+def test_query_logs_calls_find_with_correct_query(backend):
+    mock_collection = MagicMock()
+    mock_collection.find.return_value.sort.return_value.skip.return_value = []
+
+    with patch.object(backend, "get_collection", return_value=mock_collection):
+        backend.query_logs(["orders"], None, "", 0, None, UTC)
+
+    called_query = mock_collection.find.call_args[0][0]
+    assert called_query["logger_name"] == {"$in": ["orders"]}
+
+
+def test_query_logs_applies_offset(backend):
+    mock_collection = MagicMock()
+    mock_collection.find.return_value.sort.return_value.skip.return_value = []
+
+    with patch.object(backend, "get_collection", return_value=mock_collection):
+        backend.query_logs(None, None, "", 5, None, UTC)
+
+    mock_collection.find.return_value.sort.return_value.skip.assert_called_once_with(5)
+
+
+def test_query_logs_applies_limit_when_set(backend):
+    mock_collection = MagicMock()
+    mock_collection.find.return_value.sort.return_value.skip.return_value.limit.return_value = []
+
+    with patch.object(backend, "get_collection", return_value=mock_collection):
+        backend.query_logs(None, None, "", 0, 10, UTC)
+
+    mock_collection.find.return_value.sort.return_value.skip.return_value.limit.assert_called_once_with(
+        10
+    )
+
+
+def test_query_logs_skips_limit_when_none(backend):
+    mock_collection = MagicMock()
+    skip_result = MagicMock()
+    skip_result.__iter__ = MagicMock(return_value=iter([]))
+    mock_collection.find.return_value.sort.return_value.skip.return_value = skip_result
+
+    with patch.object(backend, "get_collection", return_value=mock_collection):
+        backend.query_logs(None, None, "", 0, None, UTC)
+
+    skip_result.limit.assert_not_called()
+
+
+def test_count_logs_calls_count_documents_with_empty_query(backend):
+    mock_collection = MagicMock()
+    mock_collection.count_documents.return_value = 0
+
+    with patch.object(backend, "get_collection", return_value=mock_collection):
+        result = backend.count_logs(None, None, "")
+
+    mock_collection.count_documents.assert_called_once_with({})
+    assert result == 0
+
+
+def test_count_logs_passes_filters_to_query(backend):
+    mock_collection = MagicMock()
+    mock_collection.count_documents.return_value = 3
+
+    with patch.object(backend, "get_collection", return_value=mock_collection):
+        result = backend.count_logs(["orders"], ["WARNING", "ERROR"], "")
+
+    called_query = mock_collection.count_documents.call_args[0][0]
+    assert called_query["logger_name"] == {"$in": ["orders"]}
+    assert called_query["level"] == {"$in": ["WARNING", "ERROR"]}
+    assert result == 3

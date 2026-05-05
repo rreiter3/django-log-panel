@@ -12,8 +12,8 @@ from log_panel.types import LogLevel, RangeConfig, SlotStatus
 try:
     from pymongo import MongoClient
     from pymongo.errors import ServerSelectionTimeoutError
-except ImportError as exc:
-    raise PyMongoNotInstalled() from exc
+except ImportError as exc:  # pragma: no cover
+    raise PyMongoNotInstalled() from exc  # pragma: no cover
 
 
 MAX_CONNECTION_RETRIES: int = 5
@@ -144,6 +144,73 @@ class MongoDBBackend(LogsBackend):
             slots_local=slots_local,
             slot_delta=slot_delta,
         )
+
+    def _build_log_query(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None,
+        timestamp_to: datetime | None,
+    ) -> dict:
+        query: dict = {}
+        if logger_names is not None:
+            query["logger_name"] = {"$in": logger_names}
+        if levels is not None:
+            query["level"] = {"$in": levels}
+        if search:
+            query["message"] = {"$regex": search, "$options": "i"}
+        ts_filter: dict = {}
+        if timestamp_from:
+            ts_filter["$gte"] = timestamp_from.astimezone(UTC).replace(tzinfo=None)
+        if timestamp_to:
+            ts_filter["$lt"] = timestamp_to.astimezone(UTC).replace(tzinfo=None)
+        if ts_filter:
+            query["timestamp"] = ts_filter
+        return query
+
+    def query_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        offset: int,
+        limit: int | None,
+        app_timezone: tzinfo,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> list[dict]:
+        collection: Any = self.get_collection()
+        query: dict = self._build_log_query(
+            logger_names, levels, search, timestamp_from, timestamp_to
+        )
+        cursor: Any = collection.find(query).sort("timestamp", -1).skip(offset)
+        if limit is not None:
+            cursor = cursor.limit(limit)
+        return [
+            {
+                **doc,
+                "_id": str(doc["_id"]),
+                "timestamp": doc["timestamp"]
+                .replace(tzinfo=UTC)
+                .astimezone(app_timezone),
+            }
+            for doc in cursor
+        ]
+
+    def count_logs(
+        self,
+        logger_names: list[str] | None,
+        levels: list[str] | None,
+        search: str,
+        timestamp_from: datetime | None = None,
+        timestamp_to: datetime | None = None,
+    ) -> int:
+        collection: Any = self.get_collection()
+        query: dict = self._build_log_query(
+            logger_names, levels, search, timestamp_from, timestamp_to
+        )
+        return collection.count_documents(query)
 
     def get_log_table(
         self,

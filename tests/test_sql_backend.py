@@ -392,3 +392,227 @@ def test_get_log_table_filters_by_timestamp_to(panel_factory, backend):
     )
     assert total == 1
     assert logs[0]["timestamp"].hour == 10
+
+
+@pytest.mark.django_db
+def test_query_logs_returns_all_when_no_filters(panel_factory, backend):
+    for _ in range(3):
+        panel_factory()
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 3
+
+
+@pytest.mark.django_db
+def test_query_logs_none_logger_names_returns_all_loggers(panel_factory, backend):
+    panel_factory(logger_name="app_a")
+    panel_factory(logger_name="app_b")
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 2
+
+
+@pytest.mark.django_db
+def test_query_logs_filters_single_logger_name(panel_factory, backend):
+    panel_factory(logger_name="orders")
+    panel_factory(logger_name="orders")
+    panel_factory(logger_name="auth")
+    logs = backend.query_logs(
+        logger_names=["orders"],
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 2
+    assert all(log["logger_name"] == "orders" for log in logs)
+
+
+@pytest.mark.django_db
+def test_query_logs_filters_multiple_logger_names(panel_factory, backend):
+    panel_factory(logger_name="orders")
+    panel_factory(logger_name="machines")
+    panel_factory(logger_name="auth")
+    logs = backend.query_logs(
+        logger_names=["orders", "machines"],
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 2
+
+
+@pytest.mark.django_db
+def test_query_logs_filters_by_levels(panel_factory, backend):
+    panel_factory(level="DEBUG")
+    panel_factory(level="WARNING")
+    panel_factory(level="ERROR")
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=["WARNING", "ERROR"],
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 2
+    assert all(log["level"] in {"WARNING", "ERROR"} for log in logs)
+
+
+@pytest.mark.django_db
+def test_query_logs_none_levels_returns_all_levels(panel_factory, backend):
+    for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+        panel_factory(level=level)
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 5
+
+
+@pytest.mark.django_db
+def test_query_logs_filters_by_search(panel_factory, backend):
+    panel_factory(message="disk full")
+    panel_factory(message="user login ok")
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="disk",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 1
+    assert logs[0]["message"] == "disk full"
+
+
+@pytest.mark.django_db
+def test_query_logs_offset_skips_entries(panel_factory, backend):
+    for _ in range(5):
+        panel_factory()
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=3,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 2
+
+
+@pytest.mark.django_db
+def test_query_logs_limit_caps_results(panel_factory, backend):
+    for _ in range(5):
+        panel_factory()
+    logs = backend.query_logs(
+        logger_names=None, levels=None, search="", offset=0, limit=2, app_timezone=UTC
+    )
+    assert len(logs) == 2
+
+
+@pytest.mark.django_db
+def test_query_logs_returns_expected_fields(panel_factory, backend):
+    panel_factory()
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    for field in (
+        "_id",
+        "timestamp",
+        "level",
+        "logger_name",
+        "message",
+        "module",
+        "pathname",
+        "line_number",
+    ):
+        assert field in logs[0], f"Missing field: {field}"
+
+
+@pytest.mark.django_db
+def test_query_logs_combines_logger_names_and_levels(panel_factory, backend):
+    panel_factory(logger_name="orders", level="WARNING")
+    panel_factory(logger_name="orders", level="DEBUG")
+    panel_factory(logger_name="auth", level="WARNING")
+    logs = backend.query_logs(
+        logger_names=["orders"],
+        levels=["WARNING", "ERROR", "CRITICAL"],
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+    )
+    assert len(logs) == 1
+    assert logs[0]["logger_name"] == "orders"
+    assert logs[0]["level"] == "WARNING"
+
+
+@pytest.mark.django_db
+def test_count_logs_returns_total_with_no_filters(panel_factory, backend):
+    for _ in range(4):
+        panel_factory()
+    assert backend.count_logs(logger_names=None, levels=None, search="") == 4
+
+
+@pytest.mark.django_db
+def test_count_logs_filters_by_logger_names(panel_factory, backend):
+    panel_factory(logger_name="orders")
+    panel_factory(logger_name="orders")
+    panel_factory(logger_name="auth")
+    assert backend.count_logs(logger_names=["orders"], levels=None, search="") == 2
+
+
+@pytest.mark.django_db
+def test_count_logs_filters_by_levels(panel_factory, backend):
+    panel_factory(level="DEBUG")
+    panel_factory(level="WARNING")
+    panel_factory(level="ERROR")
+    assert (
+        backend.count_logs(logger_names=None, levels=["WARNING", "ERROR"], search="")
+        == 2
+    )
+
+
+@pytest.mark.django_db
+def test_count_logs_filters_by_search(panel_factory, backend):
+    panel_factory(message="disk full")
+    panel_factory(message="user login ok")
+    assert backend.count_logs(logger_names=None, levels=None, search="disk") == 1
+
+
+@pytest.mark.django_db
+def test_count_logs_combines_filters(panel_factory, backend):
+    panel_factory(logger_name="orders", level="WARNING")
+    panel_factory(logger_name="orders", level="DEBUG")
+    panel_factory(logger_name="auth", level="WARNING")
+    assert (
+        backend.count_logs(
+            logger_names=["orders"], levels=["WARNING", "ERROR", "CRITICAL"], search=""
+        )
+        == 1
+    )
