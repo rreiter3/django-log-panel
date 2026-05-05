@@ -1,3 +1,4 @@
+import os
 import threading
 from datetime import UTC, datetime
 from functools import partial
@@ -28,6 +29,7 @@ class MongoDBHandler(Handler):
         self._client: Any = None
         self._collection: Any = None
         self._indexes_ensured: bool = False
+        self._pid: int | None = None
 
     def get_collection(self) -> Any:
         """Return a cached PyMongo Collection, connecting lazily on first call.
@@ -38,7 +40,14 @@ class MongoDBHandler(Handler):
             ValueError: If no connection string is configured.
         """
         if self._collection is not None:
-            return self._collection
+            if os.getpid() == self._pid:
+                return self._collection
+            # Forked child — discard stale references without calling client.close(),
+            # which would close the parent's OS-level socket.
+            self._client = None
+            self._collection = None
+            self._indexes_ensured = False
+            self._pid = None
 
         from log_panel.conf import get_setting
         from log_panel.exceptions.mongodb import (
@@ -84,6 +93,7 @@ class MongoDBHandler(Handler):
 
         self._client = client
         self._collection = client[db_name][collection_name]
+        self._pid = os.getpid()
 
         if not self._indexes_ensured:
             ttl_days: int = get_setting(key="TTL_DAYS")
@@ -114,6 +124,7 @@ class MongoDBHandler(Handler):
             self._client.close()
             self._client = None
             self._collection = None
+            self._pid = None
         super().close()
 
     @staticmethod

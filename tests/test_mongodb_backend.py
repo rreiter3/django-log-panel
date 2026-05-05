@@ -772,6 +772,25 @@ def test_get_collection_caches_client(backend):
     mock_cls.assert_called_once()
 
 
+def test_get_collection_reconnects_after_fork(backend):
+    first_client = MagicMock()
+    second_client = MagicMock()
+
+    with patch(
+        "log_panel.backends.mongodb.MongoClient",
+        side_effect=[first_client, second_client],
+    ):
+        with patch(
+            "log_panel.backends.mongodb.os.getpid", side_effect=[1000, 1000, 2001, 2001]
+        ):
+            backend.get_collection()
+            backend.get_collection()
+            backend.get_collection()
+
+    assert backend._pid == 2001
+    first_client.close.assert_not_called()
+
+
 def test_build_log_query_empty_with_no_filters(backend):
     assert backend._build_log_query(None, None, "", None, None) == {}
 

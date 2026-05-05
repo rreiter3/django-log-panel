@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
@@ -51,6 +52,7 @@ class MongoDBBackend(LogsBackend):
         self.allow_disk_use: bool = allow_disk_use
         self._client: MongoClient | None = None
         self._collection: Any = None
+        self._pid: int | None = None
 
     def get_collection(self) -> Any:
         """Return a cached PyMongo Collection object for the configured database/collection.
@@ -65,7 +67,13 @@ class MongoDBBackend(LogsBackend):
             MongoDBConnectionError: If the server is unreachable after all retries.
         """
         if self._collection is not None:
-            return self._collection
+            if os.getpid() == self._pid:
+                return self._collection
+            # Forked child — discard stale references without calling client.close(),
+            # which would close the parent's OS-level socket.
+            self._client = None
+            self._collection = None
+            self._pid = None
 
         import time
 
@@ -79,6 +87,7 @@ class MongoDBBackend(LogsBackend):
                 client.admin.command("ping")
                 self._client = client
                 self._collection = client[self.db_name][self.collection_name]
+                self._pid = os.getpid()
                 return self._collection
             except ServerSelectionTimeoutError as exc:
                 last_exc = exc

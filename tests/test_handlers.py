@@ -407,6 +407,28 @@ def test_mongodb_handler_get_collection_succeeds_on_third_retry():
     assert mock_client.admin.command.call_count == 3
 
 
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_get_collection_reconnects_after_fork():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+    first_client = MagicMock()
+    second_client = MagicMock()
+    mock_pymongo.MongoClient.side_effect = [first_client, second_client]
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        with patch(
+            "log_panel.handlers.mongodb.os.getpid", side_effect=[1000, 1000, 2001, 2001]
+        ):
+            handler.get_collection()
+            handler.get_collection()
+            handler.get_collection()
+
+    assert mock_pymongo.MongoClient.call_count == 2
+    first_client.close.assert_not_called()
+
+
 def test_mongodb_handler_emit_inserts_document(log_record_factory):
     handler = MongoDBHandler()
     mock_collection = MagicMock()

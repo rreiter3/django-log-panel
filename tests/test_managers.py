@@ -50,7 +50,7 @@ def test_filter_logger_names_stored():
 
 def test_filter_min_level_resolved_to_levels():
     qs = LogQueryset(backend=None).filter(min_level="WARNING")
-    assert set(qs._filters.levels) == {"WARNING", "ERROR", "CRITICAL"}
+    assert set(qs._filters.levels or []) == {"WARNING", "ERROR", "CRITICAL"}
 
 
 def test_filter_chaining_combines_constraints():
@@ -60,7 +60,7 @@ def test_filter_chaining_combines_constraints():
         .filter(min_level="ERROR")
     )
     assert qs._filters.logger_names == ["orders"]
-    assert set(qs._filters.levels) == {"ERROR", "CRITICAL"}
+    assert set(qs._filters.levels or []) == {"ERROR", "CRITICAL"}
 
 
 def test_filter_later_call_replaces_logger_names():
@@ -70,7 +70,7 @@ def test_filter_later_call_replaces_logger_names():
 
 def test_filter_later_call_replaces_min_level():
     qs = LogQueryset(backend=None).filter(min_level="DEBUG").filter(min_level="ERROR")
-    assert set(qs._filters.levels) == {"ERROR", "CRITICAL"}
+    assert set(qs._filters.levels or []) == {"ERROR", "CRITICAL"}
 
 
 def test_filter_timestamp_from_stored():
