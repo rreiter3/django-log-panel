@@ -128,7 +128,7 @@ class MongoDBBackend(LogsBackend):
             unit_value=range_config.unit.value,
             app_timezone_name=app_timezone_name,
         )
-        pipeline_one_hour_ago: list = self._build_cards_pipeline(one_hour_ago)
+        pipeline_one_hour_ago: list = self._build_cards_pipeline(one_hour_ago, cutoff)
 
         thresholds: dict[str, int | None] = conf.get_thresholds()
         error_threshold: int = thresholds.get("ERROR") or 1
@@ -289,9 +289,10 @@ class MongoDBBackend(LogsBackend):
         return slots_utc_naive, slot_labels, slots_local
 
     @staticmethod
-    def _build_cards_pipeline(one_hour_ago: datetime) -> list[dict]:
-        """Return the $group pipeline for all-time and last-hour per-logger counts."""
+    def _build_cards_pipeline(one_hour_ago: datetime, cutoff: datetime) -> list[dict]:
+        """Return the aggregation pipeline for per-logger counts within the selected range."""
         return [
+            {"$match": {"timestamp": {"$gte": cutoff}}},
             {
                 "$group": {
                     "_id": "$logger_name",

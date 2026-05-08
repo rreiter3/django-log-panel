@@ -367,6 +367,60 @@ def test_mongodb_handler_get_collection_creates_ttl_index():
     assert ttl_calls[0][1]["expireAfterSeconds"] == 90 * 24 * 3600
 
 
+@override_settings(
+    LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017", "TTL_DAYS": 30}
+)
+def test_mongodb_handler_ttl_index_updated_via_collmod_when_ttl_days_changes():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+    mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
+    mock_collection.index_information.return_value = {
+        "ttl_index": {"expireAfterSeconds": 90 * 24 * 3600, "key": [("timestamp", 1)]}
+    }
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        handler.get_collection()
+
+    ttl_calls = [
+        c
+        for c in mock_collection.create_index.call_args_list
+        if c[1].get("expireAfterSeconds") is not None
+    ]
+    assert ttl_calls == [], (
+        "create_index should not be called for TTL when collMod is used"
+    )
+    mock_collection.database.command.assert_called_once_with(
+        "collMod",
+        mock_collection.name,
+        index={"name": "ttl_index", "expireAfterSeconds": 30 * 24 * 3600},
+    )
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_ttl_index_not_modified_when_ttl_days_unchanged():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+    mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
+    mock_collection.index_information.return_value = {
+        "ttl_index": {"expireAfterSeconds": 90 * 24 * 3600, "key": [("timestamp", 1)]}
+    }
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        handler.get_collection()
+
+    ttl_calls = [
+        c
+        for c in mock_collection.create_index.call_args_list
+        if c[1].get("expireAfterSeconds") is not None
+    ]
+    assert ttl_calls == []
+    mock_collection.database.command.assert_not_called()
+
+
 @override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://bad-host:27017"})
 def test_mongodb_handler_get_collection_raises_connection_error_after_retries():
     handler = MongoDBHandler()

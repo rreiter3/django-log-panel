@@ -3,7 +3,16 @@ import logging
 import pytest
 from django.utils import timezone
 
+from log_panel.conf import reset_backend_cache
 from log_panel.models import Panel
+
+
+@pytest.fixture(autouse=True)
+def _reset_backend_cache():
+    """Ensure each test starts with a fresh backend instance."""
+    reset_backend_cache()
+    yield
+    reset_backend_cache()
 
 
 @pytest.fixture

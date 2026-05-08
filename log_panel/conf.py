@@ -7,6 +7,16 @@ from django.core.exceptions import ImproperlyConfigured
 
 from log_panel.types import RangeConfig, RangeUnit
 
+_UNSET = object()
+_backend_cache: Any = _UNSET
+
+
+def reset_backend_cache() -> None:
+    """Reset the cached backend instance — use in tests and after settings changes."""
+    global _backend_cache
+    _backend_cache = _UNSET
+
+
 DEFAULTS: dict[str, Any] = {
     # Backend — None means auto-detect
     "BACKEND": None,
@@ -130,6 +140,9 @@ def _build_mongodb_backend(connection_string: str | None = None):
 def get_backend():
     """Instantiate and return the configured backend, or None if not configured.
 
+    The result is cached for the lifetime of the process so that the underlying
+    connection pool is reused across requests.
+
     Resolution order:
     1. LOG_PANEL['BACKEND'] dotted class path (explicit override).
     2. SqlBackend if a SQL logging alias is found.
@@ -139,6 +152,10 @@ def get_backend():
     Returns:
         A LogsBackend instance, or None.
     """
+    global _backend_cache
+    if _backend_cache is not _UNSET:
+        return _backend_cache
+
     from log_panel.backends.base import LogsBackend
 
     explicit: str | None = get_setting(key="BACKEND")
@@ -152,15 +169,18 @@ def get_backend():
         from log_panel.backends.mongodb import MongoDBBackend
 
         if issubclass(cls, MongoDBBackend):
-            return _build_mongodb_backend()
+            _backend_cache = _build_mongodb_backend()
+            return _backend_cache
 
         backend: LogsBackend = cls()
-        return backend
+        _backend_cache = backend
+        return _backend_cache
 
     if get_database_alias():
         from log_panel.backends.sql import SqlBackend
 
-        return SqlBackend()
+        _backend_cache = SqlBackend()
+        return _backend_cache
 
     user_config: dict[str, Any] = get_user_config()
     conn_str: str | None = get_setting(key="CONNECTION_STRING")
@@ -174,8 +194,10 @@ def get_backend():
         raise ImproperlyConfigured('LOG_PANEL["CONNECTION_STRING"] is set but empty.')
 
     if conn_str_stripped:
-        return _build_mongodb_backend(conn_str_stripped)
+        _backend_cache = _build_mongodb_backend(conn_str_stripped)
+        return _backend_cache
 
+    _backend_cache = None
     return None
 
 
