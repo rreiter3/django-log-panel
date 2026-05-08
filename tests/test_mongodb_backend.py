@@ -14,6 +14,7 @@ from log_panel.types import RangeConfig, RangeUnit, SlotStatus
 BERLIN = ZoneInfo("Europe/Berlin")
 NOW_UTC = datetime(2024, 6, 15, 14, 0, 0, tzinfo=UTC)
 ONE_HOUR_AGO = NOW_UTC - timedelta(hours=1)
+CUTOFF = NOW_UTC - timedelta(hours=24)
 
 HOUR_RANGE = RangeConfig(
     delta=timedelta(hours=24),
@@ -102,24 +103,29 @@ def test_build_slots_day_unit_uses_midnight_boundaries():
         assert slot.minute == 0
 
 
-def test_build_cards_pipeline_has_two_stages():
-    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO)
-    assert len(pipeline) == 2
+def test_build_cards_pipeline_has_three_stages():
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    assert len(pipeline) == 3
 
 
-def test_build_cards_pipeline_first_stage_is_group():
-    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO)
-    assert "$group" in pipeline[0]
+def test_build_cards_pipeline_first_stage_is_match_on_cutoff():
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    assert pipeline[0] == {"$match": {"timestamp": {"$gte": CUTOFF}}}
 
 
-def test_build_cards_pipeline_second_stage_sorts_by_last_seen_desc():
-    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO)
-    assert pipeline[1] == {"$sort": {"last_seen": -1}}
+def test_build_cards_pipeline_second_stage_is_group():
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    assert "$group" in pipeline[1]
+
+
+def test_build_cards_pipeline_third_stage_sorts_by_last_seen_desc():
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    assert pipeline[2] == {"$sort": {"last_seen": -1}}
 
 
 def test_build_cards_pipeline_group_includes_required_fields():
-    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO)
-    group = pipeline[0]["$group"]
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    group = pipeline[1]["$group"]
     for field in (
         "total",
         "total_errors",
@@ -132,8 +138,8 @@ def test_build_cards_pipeline_group_includes_required_fields():
 
 
 def test_build_cards_pipeline_recent_cutoff_is_embedded():
-    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO)
-    recent_errors_cond = pipeline[0]["$group"]["recent_errors"]["$sum"]["$cond"]
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    recent_errors_cond = pipeline[1]["$group"]["recent_errors"]["$sum"]["$cond"]
     and_clauses = recent_errors_cond[0]["$and"]
     gte_clause = next(c for c in and_clauses if "$gte" in c)
     assert gte_clause["$gte"][1] == ONE_HOUR_AGO

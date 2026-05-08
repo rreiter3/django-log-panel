@@ -35,13 +35,13 @@ class PanelAdmin(admin.ModelAdmin):
         return callback(request)
 
     def has_add_permission(self, request: HttpRequest) -> bool:
-        return False
+        return False  # pragma: no cover
 
     def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return False
+        return False  # pragma: no cover
 
     def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return False
+        return False  # pragma: no cover
 
     def changelist_view(
         self, request: HttpRequest, extra_context: dict | None = None

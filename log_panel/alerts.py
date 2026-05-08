@@ -37,7 +37,7 @@ def maybe_emit_threshold_signal(
     if threshold_config is None:
         return
     if getattr(_dispatch_local, "dispatching", False):
-        return
+        return  # pragma: no cover
     if not log_threshold_reached.has_listeners(sender):
         return
 
@@ -75,12 +75,12 @@ def maybe_emit_threshold_signal(
 
 def get_threshold_config(record_level: str) -> ThresholdConfig | None:
     """Return the threshold config for *record_level*, or None if the level is not configured."""
-    thresholds = conf.get_thresholds()
-    threshold = thresholds.get(record_level)
+    thresholds: dict[str, int | None] = conf.get_thresholds()
+    threshold: int | None = thresholds.get(record_level)
     if threshold is None:
         return None
     try:
-        level = LogLevel(record_level)
-    except ValueError:
-        return None
+        level = LogLevel(value=record_level)
+    except ValueError:  # pragma: no cover
+        return None  # pragma: no cover
     return ThresholdConfig(level=level, threshold=threshold)

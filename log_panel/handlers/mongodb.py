@@ -28,7 +28,7 @@ class MongoDBHandler(Handler):
         super().__init__(*args, **kwargs)
         self._client: Any = None
         self._collection: Any = None
-        self._indexes_ensured: bool = False
+        self._indexes_upserted: bool = False
         self._pid: int | None = None
 
     def get_collection(self) -> Any:
@@ -46,7 +46,7 @@ class MongoDBHandler(Handler):
             # which would close the parent's OS-level socket.
             self._client = None
             self._collection = None
-            self._indexes_ensured = False
+            self._indexes_upserted = False
             self._pid = None
 
         from log_panel.conf import get_setting
@@ -56,7 +56,7 @@ class MongoDBHandler(Handler):
         )
 
         try:
-            from pymongo import ASCENDING, MongoClient
+            from pymongo import MongoClient
             from pymongo.errors import ServerSelectionTimeoutError
         except ImportError as exc:
             raise PyMongoNotInstalled() from exc
@@ -95,28 +95,51 @@ class MongoDBHandler(Handler):
         self._collection = client[db_name][collection_name]
         self._pid = os.getpid()
 
-        if not self._indexes_ensured:
+        if not self._indexes_upserted:
             ttl_days: int = get_setting(key="TTL_DAYS")
-            self._collection.create_index(
-                [("timestamp", ASCENDING)],
-                expireAfterSeconds=ttl_days * 24 * 3600,
-                name="ttl_index",
+            self.upsert_indexes(
+                collection=self._collection, ttl_seconds=ttl_days * 24 * 3600
             )
-            self._collection.create_index(
-                [
-                    ("timestamp", ASCENDING),
-                    ("logger_name", ASCENDING),
-                    ("level", ASCENDING),
-                ],
-                name="timestamp_logger_level_idx",
-            )
-            self._collection.create_index(
-                [("logger_name", ASCENDING), ("timestamp", -1)],
-                name="logger_name_timestamp_idx",
-            )
-            self._indexes_ensured = True
+            self._indexes_upserted = True
 
         return self._collection
+
+    @staticmethod
+    def upsert_indexes(collection: Any, ttl_seconds: int) -> None:
+        """Create or update indexes on the log collection.
+
+        The TTL index is updated via ``collMod`` when ``TTL_DAYS`` changes so
+        that the existing index is not dropped and rebuilt. Compound indexes are
+        idempotent.
+        """
+        from pymongo import ASCENDING
+
+        existing: dict = collection.index_information()
+        if "ttl_index" in existing:
+            if existing["ttl_index"].get("expireAfterSeconds") != ttl_seconds:
+                collection.database.command(
+                    "collMod",
+                    collection.name,
+                    index={"name": "ttl_index", "expireAfterSeconds": ttl_seconds},
+                )
+        else:
+            collection.create_index(
+                [("timestamp", ASCENDING)],
+                expireAfterSeconds=ttl_seconds,
+                name="ttl_index",
+            )
+        collection.create_index(
+            [
+                ("timestamp", ASCENDING),
+                ("logger_name", ASCENDING),
+                ("level", ASCENDING),
+            ],
+            name="timestamp_logger_level_idx",
+        )
+        collection.create_index(
+            [("logger_name", ASCENDING), ("timestamp", -1)],
+            name="logger_name_timestamp_idx",
+        )
 
     def close(self) -> None:
         """Close the cached MongoClient and release resources."""
