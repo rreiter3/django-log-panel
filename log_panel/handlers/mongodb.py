@@ -106,7 +106,7 @@ class MongoDBHandler(Handler):
 
     @staticmethod
     def upsert_indexes(collection: Any, ttl_seconds: int) -> None:
-        """Create or update indexes on the log collection.
+        """Create or update indexes on the log collection and stats collection.
 
         The TTL index is updated via ``collMod`` when ``TTL_DAYS`` changes so
         that the existing index is not dropped and rebuilt. Compound indexes are
@@ -140,6 +140,33 @@ class MongoDBHandler(Handler):
             [("logger_name", ASCENDING), ("timestamp", -1)],
             name="logger_name_timestamp_idx",
         )
+
+        stats: Any = collection.database[collection.name + "_stats"]
+        stats.create_index(
+            [("logger_name", ASCENDING), ("bucket", ASCENDING)],
+            unique=True,
+            name="logger_bucket_idx",
+        )
+        stats_existing: dict = stats.index_information()
+        if "stats_ttl_index" in stats_existing:
+            if (
+                stats_existing["stats_ttl_index"].get("expireAfterSeconds")
+                != ttl_seconds
+            ):
+                stats.database.command(
+                    "collMod",
+                    stats.name,
+                    index={
+                        "name": "stats_ttl_index",
+                        "expireAfterSeconds": ttl_seconds,
+                    },
+                )
+        else:
+            stats.create_index(
+                [("bucket", ASCENDING)],
+                expireAfterSeconds=ttl_seconds,
+                name="stats_ttl_index",
+            )
 
     def close(self) -> None:
         """Close the cached MongoClient and release resources."""
@@ -188,6 +215,15 @@ class MongoDBHandler(Handler):
                 "lineno": record.lineno,
             }
             collection.insert_one(doc)
+            hour_bucket: datetime = doc["timestamp"].replace(minute=0, second=0, microsecond=0)
+            collection.database[collection.name + "_stats"].update_one(
+                {"logger_name": doc["logger_name"], "bucket": hour_bucket},
+                {
+                    "$inc": {f"counts.{doc['level']}": 1, "total": 1},
+                    "$max": {"last_seen": doc["timestamp"]},
+                },
+                upsert=True,
+            )
             maybe_emit_threshold_signal(
                 sender=self.__class__,
                 logger_name=doc["logger_name"],
