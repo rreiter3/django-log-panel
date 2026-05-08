@@ -215,7 +215,9 @@ class MongoDBHandler(Handler):
                 "lineno": record.lineno,
             }
             collection.insert_one(doc)
-            hour_bucket: datetime = doc["timestamp"].replace(minute=0, second=0, microsecond=0)
+            hour_bucket: datetime = doc["timestamp"].replace(
+                minute=0, second=0, microsecond=0
+            )
             collection.database[collection.name + "_stats"].update_one(
                 {"logger_name": doc["logger_name"], "bucket": hour_bucket},
                 {
