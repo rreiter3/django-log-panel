@@ -4,9 +4,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.contrib.admin import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.cache import cache
 from django.test import RequestFactory, override_settings
 from django.utils import timezone as django_timezone
 
+from log_panel import conf
 from log_panel.admin import PanelAdmin
 from log_panel.filters import CardListFilter, TableListFilter
 from log_panel.models import Panel
@@ -23,6 +25,15 @@ def panel_admin():
 @pytest.fixture
 def factory():
     return RequestFactory()
+
+
+@pytest.fixture(autouse=True)
+def clear_cards_cache():
+    for range_key in ("24h", "30d", "90d", "1h"):
+        cache.delete(f"log_panel:cards:{range_key}")
+    yield
+    for range_key in ("24h", "30d", "90d", "1h"):
+        cache.delete(f"log_panel:cards:{range_key}")
 
 
 def make_rows():
@@ -116,6 +127,47 @@ def test_logger_cards_context_calls_backend_and_returns_rows(panel_admin, factor
     ctx = panel_admin._logger_cards_context(request, backend=backend, error=None)
     assert len(ctx["logger_rows"]) == 1
     assert ctx["error"] is None
+
+
+def test_logger_cards_context_uses_cache_when_timeout_configured(panel_admin, factory):
+    backend = make_backend(rows=[{"logger_name": "myapp"}])
+    request = factory.get("/")
+
+    def get_setting(key):
+        if key == "CACHE_TIMEOUT_SECONDS":
+            return 30
+        return conf.DEFAULTS[key]
+
+    with patch("log_panel.admin.conf.get_setting", side_effect=get_setting):
+        with patch("log_panel.admin.cache.get_or_set") as mock_get_or_set:
+            mock_get_or_set.return_value = [{"logger_name": "cached"}]
+            ctx = panel_admin._logger_cards_context(
+                request, backend=backend, error=None
+            )
+
+    assert ctx["logger_rows"] == [{"logger_name": "cached"}]
+    backend.get_logger_cards.assert_not_called()
+    mock_get_or_set.assert_called_once()
+
+
+def test_logger_cards_context_bypasses_cache_when_timeout_is_none(panel_admin, factory):
+    backend = make_backend(rows=[{"logger_name": "myapp"}])
+    request = factory.get("/")
+
+    def get_setting(key):
+        if key == "CACHE_TIMEOUT_SECONDS":
+            return None
+        return conf.DEFAULTS[key]
+
+    with patch("log_panel.admin.conf.get_setting", side_effect=get_setting):
+        with patch("log_panel.admin.cache.get_or_set") as mock_get_or_set:
+            ctx = panel_admin._logger_cards_context(
+                request, backend=backend, error=None
+            )
+
+    assert ctx["logger_rows"] == [{"logger_name": "myapp"}]
+    backend.get_logger_cards.assert_called_once()
+    mock_get_or_set.assert_not_called()
 
 
 def test_logger_cards_context_backend_exception_sets_error(panel_admin, factory):

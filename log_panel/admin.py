@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
 from math import ceil
-from typing import Any
+from typing import Any, cast
 
 from django.contrib import admin
+from django.core.cache import cache
 from django.http import HttpRequest
 from django.template.response import TemplateResponse
 from django.utils import timezone as django_timezone
@@ -77,18 +78,34 @@ class PanelAdmin(admin.ModelAdmin):
             try:
                 now_utc: datetime = datetime.now(tz=UTC)
                 app_timezone = django_timezone.get_default_timezone()
-                logger_rows = backend.get_logger_cards(
-                    now_utc=now_utc,
-                    range_config=range_config,
-                    app_timezone=app_timezone,
-                )
+                timeout: int | None = conf.get_setting("CACHE_TIMEOUT_SECONDS")
+                if timeout is not None:
+                    cache_key: str = f"log_panel:cards:{selected_range}"
+                    logger_rows: list = cast(
+                        typ=list[dict],
+                        val=cache.get_or_set(
+                            cache_key,
+                            lambda: backend.get_logger_cards(
+                                now_utc=now_utc,
+                                range_config=range_config,
+                                app_timezone=app_timezone,
+                            ),
+                            timeout,
+                        ),
+                    )
+                else:
+                    logger_rows: list = backend.get_logger_cards(
+                        now_utc=now_utc,
+                        range_config=range_config,
+                        app_timezone=app_timezone,
+                    )
             except Exception as exc:
                 error = str(object=exc)
 
         range_label: str = range_config.label or selected_range
 
         card_filter = CardListFilter(request)
-        logger_rows = card_filter.apply(logger_rows)
+        logger_rows: list = card_filter.apply(logger_rows)
 
         return {
             **self.admin_site.each_context(request),

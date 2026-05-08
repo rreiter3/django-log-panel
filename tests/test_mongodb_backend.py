@@ -110,7 +110,7 @@ def test_build_cards_pipeline_has_three_stages():
 
 def test_build_cards_pipeline_first_stage_is_match_on_cutoff():
     pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
-    assert pipeline[0] == {"$match": {"timestamp": {"$gte": CUTOFF}}}
+    assert pipeline[0] == {"$match": {"bucket": {"$gte": CUTOFF}}}
 
 
 def test_build_cards_pipeline_second_stage_is_group():
@@ -140,9 +140,23 @@ def test_build_cards_pipeline_group_includes_required_fields():
 def test_build_cards_pipeline_recent_cutoff_is_embedded():
     pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
     recent_errors_cond = pipeline[1]["$group"]["recent_errors"]["$sum"]["$cond"]
-    and_clauses = recent_errors_cond[0]["$and"]
-    gte_clause = next(c for c in and_clauses if "$gte" in c)
-    assert gte_clause["$gte"][1] == ONE_HOUR_AGO
+    assert recent_errors_cond[0] == {"$gte": ["$bucket", ONE_HOUR_AGO]}
+
+
+def test_build_cards_pipeline_uses_stats_fields():
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    group = pipeline[1]["$group"]
+    assert group["total"] == {"$sum": "$total"}
+    assert "$counts.ERROR" in str(group)
+    assert "$counts.CRITICAL" in str(group)
+    assert "$counts.WARNING" in str(group)
+
+
+def test_build_cards_pipeline_does_not_reference_raw_log_fields():
+    pipeline = MongoDBBackend._build_cards_pipeline(ONE_HOUR_AGO, CUTOFF)
+    pipeline_repr = str(pipeline)
+    assert "$timestamp" not in pipeline_repr
+    assert "$level" not in pipeline_repr
 
 
 def test_build_timeline_pipeline_has_two_stages():
@@ -153,13 +167,13 @@ def test_build_timeline_pipeline_has_two_stages():
     assert len(pipeline) == 2
 
 
-def test_build_timeline_pipeline_first_stage_matches_on_timestamp():
+def test_build_timeline_pipeline_first_stage_matches_on_bucket():
     cutoff = NOW_UTC - timedelta(hours=24)
     pipeline = MongoDBBackend._build_timeline_pipeline(
         cutoff=cutoff, unit_value="hour", app_timezone_name="UTC"
     )
     assert "$match" in pipeline[0]
-    assert pipeline[0]["$match"]["timestamp"]["$gte"] == cutoff
+    assert pipeline[0]["$match"]["bucket"]["$gte"] == cutoff
 
 
 def test_build_timeline_pipeline_uses_unit_value():
@@ -169,6 +183,15 @@ def test_build_timeline_pipeline_uses_unit_value():
     )
     group = pipeline[1]["$group"]
     assert group["_id"]["bucket"]["$dateTrunc"]["unit"] == "day"
+
+
+def test_build_timeline_pipeline_truncates_stats_bucket():
+    cutoff = NOW_UTC - timedelta(hours=24)
+    pipeline = MongoDBBackend._build_timeline_pipeline(
+        cutoff=cutoff, unit_value="hour", app_timezone_name="UTC"
+    )
+    group = pipeline[1]["$group"]
+    assert group["_id"]["bucket"]["$dateTrunc"]["date"] == "$bucket"
 
 
 def test_build_timeline_pipeline_uses_timezone_name():
@@ -188,6 +211,17 @@ def test_build_timeline_pipeline_group_includes_has_error_and_has_warning():
     group = pipeline[1]["$group"]
     assert "has_error" in group
     assert "has_warning" in group
+
+
+def test_build_timeline_pipeline_uses_stats_counts():
+    cutoff = NOW_UTC - timedelta(hours=24)
+    pipeline = MongoDBBackend._build_timeline_pipeline(
+        cutoff=cutoff, unit_value="hour", app_timezone_name="UTC"
+    )
+    group = pipeline[1]["$group"]
+    assert "$counts.ERROR" in str(group["has_error"])
+    assert "$counts.CRITICAL" in str(group["has_error"])
+    assert "$counts.WARNING" in str(group["has_warning"])
 
 
 def _make_collection_mock(entries: list[dict]) -> MagicMock:
@@ -597,10 +631,10 @@ def test_mongodb_backend_get_collection_succeeds_on_retry():
 
 def test_get_logger_cards_returns_assembled_rows():
     backend = MongoDBBackend(connection_string="mongodb://localhost:27017")
-    mock_collection = MagicMock()
+    mock_stats = MagicMock()
 
     bucket = datetime(2024, 6, 15, 14, 0, 0)
-    mock_collection.aggregate.side_effect = [
+    mock_stats.aggregate.side_effect = [
         iter(
             [
                 {
@@ -625,7 +659,7 @@ def test_get_logger_cards_returns_assembled_rows():
         ),
     ]
 
-    with patch.object(backend, "get_collection", return_value=mock_collection):
+    with patch.object(backend, "get_stats_collection", return_value=mock_stats):
         rows = backend.get_logger_cards(
             now_utc=NOW_UTC,
             range_config=HOUR_RANGE,
@@ -639,12 +673,30 @@ def test_get_logger_cards_returns_assembled_rows():
     assert len(row["timeline"]) == 24
 
 
+def test_get_logger_cards_uses_stats_collection_for_aggregations():
+    backend = MongoDBBackend(connection_string="mongodb://localhost:27017")
+    mock_stats = MagicMock()
+    mock_stats.aggregate.side_effect = [iter([]), iter([])]
+
+    with patch.object(backend, "get_collection") as mock_get_collection:
+        with patch.object(backend, "get_stats_collection", return_value=mock_stats):
+            rows = backend.get_logger_cards(
+                now_utc=NOW_UTC,
+                range_config=HOUR_RANGE,
+                app_timezone=UTC,
+            )
+
+    assert rows == []
+    mock_get_collection.assert_not_called()
+    assert mock_stats.aggregate.call_count == 2
+
+
 def test_get_logger_cards_empty_collection_returns_empty_list():
     backend = MongoDBBackend(connection_string="mongodb://localhost:27017")
-    mock_collection = MagicMock()
-    mock_collection.aggregate.side_effect = [iter([]), iter([])]
+    mock_stats = MagicMock()
+    mock_stats.aggregate.side_effect = [iter([]), iter([])]
 
-    with patch.object(backend, "get_collection", return_value=mock_collection):
+    with patch.object(backend, "get_stats_collection", return_value=mock_stats):
         rows = backend.get_logger_cards(
             now_utc=NOW_UTC,
             range_config=HOUR_RANGE,

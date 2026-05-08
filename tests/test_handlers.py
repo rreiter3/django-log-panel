@@ -25,6 +25,8 @@ def make_pymongo_mock():
 
 class MongoCollection:
     def __init__(self) -> None:
+        self.name = "logs"
+        self.database = {"logs_stats": MagicMock()}
         self.docs: list[dict] = []
         self.count_queries: list[dict] = []
 
@@ -498,6 +500,28 @@ def test_mongodb_handler_emit_inserts_document(log_record_factory):
     assert doc["timestamp"].tzinfo is not None
 
 
+def test_mongodb_handler_emit_updates_hourly_stats_bucket(log_record_factory):
+    handler = MongoDBHandler()
+    mock_collection = MagicMock()
+    mock_collection.name = "logs"
+    mock_stats = MagicMock()
+    mock_collection.database.__getitem__.return_value = mock_stats
+    current_time = datetime(2024, 6, 15, 15, 42, 30, tzinfo=UTC)
+
+    with patch.object(handler, "get_collection", return_value=mock_collection):
+        handler.emit(set_record_created(log_record_factory(), current_time))
+
+    expected_bucket = current_time.replace(minute=0, second=0, microsecond=0)
+    mock_stats.update_one.assert_called_once_with(
+        {"logger_name": "myapp", "bucket": expected_bucket},
+        {
+            "$inc": {"counts.ERROR": 1, "total": 1},
+            "$max": {"last_seen": current_time},
+        },
+        upsert=True,
+    )
+
+
 def test_mongodb_handler_emit_calls_handle_error_on_exception(log_record_factory):
     handler = MongoDBHandler()
     record = log_record_factory()
@@ -854,6 +878,30 @@ def test_mongodb_handler_indexes_created_once():
 
     mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
     assert mock_collection.create_index.call_count == 3
+
+
+@override_settings(LOG_PANEL={"CONNECTION_STRING": "mongodb://localhost:27017"})
+def test_mongodb_handler_creates_stats_indexes():
+    handler = MongoDBHandler()
+    mock_pymongo = make_pymongo_mock()
+
+    with patch.dict(
+        sys.modules, {"pymongo": mock_pymongo, "pymongo.errors": mock_pymongo.errors}
+    ):
+        handler.get_collection()
+
+    mock_collection = mock_pymongo.MongoClient.return_value["log_panel"]["logs"]
+    mock_stats = mock_collection.database[mock_collection.name + "_stats"]
+    mock_stats.create_index.assert_any_call(
+        [("logger_name", 1), ("bucket", 1)],
+        unique=True,
+        name="logger_bucket_idx",
+    )
+    mock_stats.create_index.assert_any_call(
+        [("bucket", 1)],
+        expireAfterSeconds=90 * 24 * 3600,
+        name="stats_ttl_index",
+    )
 
 
 @pytest.mark.django_db

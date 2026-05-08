@@ -97,6 +97,11 @@ class MongoDBBackend(LogsBackend):
         assert last_exc is not None
         raise MongoDBConnectionError(self.connection_string, last_exc) from last_exc
 
+    def get_stats_collection(self) -> Any:
+        """Return the pre-aggregated stats collection for this log collection."""
+        col: Any = self.get_collection()
+        return col.database[self.collection_name + "_stats"]
+
     def get_logger_cards(
         self, now_utc: datetime, range_config: RangeConfig, app_timezone: tzinfo
     ) -> list[dict]:
@@ -106,7 +111,6 @@ class MongoDBBackend(LogsBackend):
         aggregation, and row assembly so each step can be understood and
         tested independently.
         """
-        collection: Any = self.get_collection()
         app_timezone_name: str = str(app_timezone)
 
         one_hour_ago: datetime = now_utc - timedelta(hours=1)
@@ -123,6 +127,8 @@ class MongoDBBackend(LogsBackend):
             range_config=range_config,
         )
 
+        stats: Any = self.get_stats_collection()
+
         pipeline: list = self._build_timeline_pipeline(
             cutoff=cutoff,
             unit_value=range_config.unit.value,
@@ -135,7 +141,7 @@ class MongoDBBackend(LogsBackend):
         warning_threshold: int = thresholds.get("WARNING") or 1
 
         timeline: dict = self._aggregate_timeline(
-            collection=collection,
+            collection=stats,
             pipeline=pipeline,
             allow_disk_use=self.allow_disk_use,
             error_threshold=error_threshold,
@@ -143,7 +149,7 @@ class MongoDBBackend(LogsBackend):
         )
 
         return self._assemble_rows(
-            cards_cursor=collection.aggregate(
+            cards_cursor=stats.aggregate(
                 pipeline_one_hour_ago, allowDiskUse=self.allow_disk_use
             ),
             timeline_by_logger=timeline,
@@ -290,31 +296,32 @@ class MongoDBBackend(LogsBackend):
 
     @staticmethod
     def _build_cards_pipeline(one_hour_ago: datetime, cutoff: datetime) -> list[dict]:
-        """Return the aggregation pipeline for per-logger counts within the selected range."""
+        """Return the aggregation pipeline for per-logger counts from the stats collection."""
         return [
-            {"$match": {"timestamp": {"$gte": cutoff}}},
+            {"$match": {"bucket": {"$gte": cutoff}}},
             {
                 "$group": {
                     "_id": "$logger_name",
-                    "total": {"$sum": 1},
+                    "total": {"$sum": "$total"},
                     "total_errors": {
                         "$sum": {
-                            "$cond": [{"$in": ["$level", ["ERROR", "CRITICAL"]]}, 1, 0]
+                            "$add": [
+                                {"$ifNull": ["$counts.ERROR", 0]},
+                                {"$ifNull": ["$counts.CRITICAL", 0]},
+                            ]
                         }
                     },
-                    "total_warnings": {
-                        "$sum": {"$cond": [{"$eq": ["$level", "WARNING"]}, 1, 0]}
-                    },
+                    "total_warnings": {"$sum": {"$ifNull": ["$counts.WARNING", 0]}},
                     "recent_errors": {
                         "$sum": {
                             "$cond": [
+                                {"$gte": ["$bucket", one_hour_ago]},
                                 {
-                                    "$and": [
-                                        {"$in": ["$level", ["ERROR", "CRITICAL"]]},
-                                        {"$gte": ["$timestamp", one_hour_ago]},
+                                    "$add": [
+                                        {"$ifNull": ["$counts.ERROR", 0]},
+                                        {"$ifNull": ["$counts.CRITICAL", 0]},
                                     ]
                                 },
-                                1,
                                 0,
                             ]
                         }
@@ -322,18 +329,13 @@ class MongoDBBackend(LogsBackend):
                     "recent_warnings": {
                         "$sum": {
                             "$cond": [
-                                {
-                                    "$and": [
-                                        {"$eq": ["$level", "WARNING"]},
-                                        {"$gte": ["$timestamp", one_hour_ago]},
-                                    ]
-                                },
-                                1,
+                                {"$gte": ["$bucket", one_hour_ago]},
+                                {"$ifNull": ["$counts.WARNING", 0]},
                                 0,
                             ]
                         }
                     },
-                    "last_seen": {"$max": "$timestamp"},
+                    "last_seen": {"$max": "$last_seen"},
                 }
             },
             {"$sort": {"last_seen": -1}},
@@ -343,16 +345,16 @@ class MongoDBBackend(LogsBackend):
     def _build_timeline_pipeline(
         cutoff: datetime, unit_value: str, app_timezone_name: str
     ) -> list[dict]:
-        """Return the $dateTrunc pipeline for bucketed error/warning presence per logger."""
+        """Return the $dateTrunc pipeline for bucketed error/warning presence from the stats collection."""
         return [
-            {"$match": {"timestamp": {"$gte": cutoff}}},
+            {"$match": {"bucket": {"$gte": cutoff}}},
             {
                 "$group": {
                     "_id": {
                         "logger": "$logger_name",
                         "bucket": {
                             "$dateTrunc": {
-                                "date": "$timestamp",
+                                "date": "$bucket",
                                 "unit": unit_value,
                                 "timezone": app_timezone_name,
                             }
@@ -360,12 +362,13 @@ class MongoDBBackend(LogsBackend):
                     },
                     "has_error": {
                         "$sum": {
-                            "$cond": [{"$in": ["$level", ["ERROR", "CRITICAL"]]}, 1, 0]
+                            "$add": [
+                                {"$ifNull": ["$counts.ERROR", 0]},
+                                {"$ifNull": ["$counts.CRITICAL", 0]},
+                            ]
                         }
                     },
-                    "has_warning": {
-                        "$sum": {"$cond": [{"$eq": ["$level", "WARNING"]}, 1, 0]}
-                    },
+                    "has_warning": {"$sum": {"$ifNull": ["$counts.WARNING", 0]}},
                 }
             },
         ]

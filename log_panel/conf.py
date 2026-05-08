@@ -27,6 +27,7 @@ DEFAULTS: dict[str, Any] = {
     "TTL_DAYS": 90,
     "SERVER_SELECTION_TIMEOUT_MS": 2000,
     "ALLOW_DISK_USE": False,
+    "CACHE_TIMEOUT_SECONDS": 30,
     # SQL-specific
     "DATABASE_ALIAS": None,
     # Auto-attach handler to root logger on startup
