@@ -30,6 +30,7 @@
 | `TITLE` | `"Log Panel"` | Page title shown in the admin UI. |
 | `PAGE_SIZE` | `10` | Rows per page in the detail table. |
 | `RANGES` | `{"24h": ..., "30d": ..., "90d": ...}` | Timeline ranges shown on the dashboard cards. |
+| `CACHE_TIMEOUT_SECONDS` | `30` | Django cache timeout for admin dashboard logger cards. Set to `None` to disable card caching. |
 | `LEVEL_COLORS` | see below | Hex colors for log level badges in the table view. Merged with defaults, so you only need to override the levels you want to change. |
 | `PERMISSION_CALLBACK` | `None` | Dotted path to a callable `(request) -> bool`. When unset, any active staff user may view the panel. |
 
