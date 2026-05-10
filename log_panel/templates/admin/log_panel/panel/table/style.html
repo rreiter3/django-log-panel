@@ -5,6 +5,13 @@
   .log-filter-form label { margin-left: 1em; }
   .log-filter-form label:first-child { margin-left: 0; }
   .log-filter-form input[type="text"] { width: 280px; }
+  .log-filter-form input[type="text"],
+  .log-filter-form input[type="datetime-local"],
+  .log-filter-form select {
+    background: var(--body-bg, #fff);
+    color: var(--body-fg, #333);
+    border-color: var(--border-color, #ccc);
+  }
   .log-filter-form input[type="submit"] { margin-left: 1em; }
   .log-filter-form .log-filter-clear { margin-left: 0.5em; }
 
@@ -18,9 +25,4 @@
   .log-col-timestamp  { white-space: nowrap; }
   .log-col-module     { white-space: nowrap; font-size: 0.85em; }
   .log-col-message    { word-break: break-word; }
-
-  @media (prefers-color-scheme: dark) {
-    .log-filter-form input[type="text"] { background: #1a1a1a; color: #ccc; border-color: #3a3a3a; }
-  }
-  [data-theme="dark"] .log-filter-form input[type="text"] { background: #1a1a1a; color: #ccc; border-color: #3a3a3a; }
 </style>
