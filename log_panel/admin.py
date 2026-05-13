@@ -5,7 +5,9 @@ from typing import Any, cast
 from django.contrib import admin
 from django.core.cache import cache
 from django.http import HttpRequest
+from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
+from django.urls import path
 from django.utils import timezone as django_timezone
 
 from log_panel import conf
@@ -63,6 +65,36 @@ class LogAdmin(admin.ModelAdmin):
             template: str = "admin/log_panel/panel/cards.html"
 
         return TemplateResponse(request, template, context)
+
+    def get_urls(self) -> list:
+        """Add a read-only full-message view for chunked log payloads."""
+        return [
+            path(
+                "<path:object_id>/message/",
+                self.admin_site.admin_view(self.message_view),
+                name="log_panel_log_message",
+            ),
+            *super().get_urls(),
+        ]
+
+    def message_view(self, request: HttpRequest, object_id: str) -> TemplateResponse:
+        """Render the complete log message for a single log entry."""
+        log: Log = get_object_or_404(
+            Log.objects.prefetch_related("message_chunks"),
+            pk=object_id,
+        )
+        return TemplateResponse(
+            request,
+            "admin/log_panel/panel/message.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": f"{conf.get_setting(key='TITLE')} — {log.logger_name}",
+                "opts": self.model._meta,
+                "log": log,
+                "log_message": log.get_full_message(),
+                "level_colors": conf.get_level_colors(),
+            },
+        )
 
     def _logger_cards_context(
         self, request: HttpRequest, backend: LogsBackend | None, error: str | None

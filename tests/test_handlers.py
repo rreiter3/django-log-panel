@@ -51,6 +51,20 @@ def test_database_handler_ignores_internal_loggers(log_record_factory, logger_na
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "logger_name",
+    ["django.db.backends", "django_mongodb_backend", "sql.scada"],
+)
+def test_database_handler_keeps_database_and_sql_loggers(
+    log_record_factory,
+    logger_name,
+):
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory(name=logger_name))
+    assert Log.objects.filter(logger_name=logger_name).count() == 1
+
+
+@pytest.mark.django_db
 def test_database_handler_emit_maps_fields_correctly(log_record_factory):
     record = log_record_factory(
         name="billing",
@@ -100,6 +114,48 @@ def test_database_handler_emit_stores_raw_message(log_record_factory):
 
     panel = Log.objects.get()
     assert panel.message == "raw message"
+
+
+@pytest.mark.django_db
+@override_settings(
+    LOG_PANEL={
+        "MESSAGE_PREVIEW_LENGTH": 20,
+        "MESSAGE_CHUNK_SIZE": 25,
+    }
+)
+def test_database_handler_emit_chunks_large_messages(log_record_factory):
+    message = "x" * 100
+    record = log_record_factory(msg=message)
+    handler = DatabaseHandler()
+
+    handler.emit(record)
+
+    panel = Log.objects.get()
+    assert panel.message == message[:20]
+    assert panel.message_size == 100
+    assert panel.message_chunked is True
+    assert panel.get_full_message() == message
+
+
+@pytest.mark.django_db
+@override_settings(
+    LOG_PANEL={
+        "MESSAGE_PREVIEW_LENGTH": 20,
+        "MESSAGE_CHUNK_SIZE": 25,
+    }
+)
+def test_database_handler_emit_keeps_small_messages_inline(log_record_factory):
+    message = "x" * 20
+    record = log_record_factory(msg=message)
+    handler = DatabaseHandler()
+
+    handler.emit(record)
+
+    panel = Log.objects.get()
+    assert panel.message == message
+    assert panel.message_size == 20
+    assert panel.message_chunked is False
+    assert panel.message_chunks.count() == 0
 
 
 @pytest.mark.django_db
@@ -176,6 +232,29 @@ def test_database_handler_async_worker_silently_discards_database_error(
 
     with patch.object(
         handler, "_persist_record", side_effect=ProgrammingError("no table")
+    ):
+        with patch.object(handler, "handleError") as mock_handle_error:
+            asyncio.run(emit_record())
+
+    mock_handle_error.assert_not_called()
+
+
+def test_database_handler_async_worker_silently_discards_pymongo_error(
+    log_record_factory,
+):
+    pytest.importorskip("pymongo")
+    from pymongo.errors import BulkWriteError
+
+    handler = DatabaseHandler()
+    record = log_record_factory()
+
+    async def emit_record() -> None:
+        handler.emit(record)
+
+    with patch.object(
+        handler,
+        "_persist_record",
+        side_effect=BulkWriteError({"writeErrors": []}),
     ):
         with patch.object(handler, "handleError") as mock_handle_error:
             asyncio.run(emit_record())

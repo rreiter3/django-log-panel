@@ -60,18 +60,32 @@ class DatabaseHandler(Handler):
             return
         if record.name.startswith(self._IGNORED_LOGGER_PREFIXES):
             return
+        storage_error_classes = self._storage_error_classes()
         try:
-            from django.db import DatabaseError, InternalError, ProgrammingError
-
             if self._in_async_context():
                 self._wait_for_worker(record=record)
                 return
 
             self._emit_guarded(record=record, manage_connections=False)
-        except (ProgrammingError, InternalError, DatabaseError):
+        except storage_error_classes:
             pass
         except Exception:
             self.handleError(record)
+
+    @staticmethod
+    def _storage_error_classes() -> tuple[type[Exception], ...]:
+        from django.db import DatabaseError, InternalError, ProgrammingError
+
+        storage_error_classes: tuple[type[Exception], ...] = (
+            ProgrammingError,
+            InternalError,
+            DatabaseError,
+        )
+        try:
+            from pymongo.errors import PyMongoError
+        except ImportError:
+            return storage_error_classes
+        return (*storage_error_classes, PyMongoError)
 
     @staticmethod
     def _in_async_context() -> bool:
@@ -119,12 +133,7 @@ class DatabaseHandler(Handler):
             timestamp=from_record_timestamp(timestamp=record.created),
             level=record.levelname,
             logger_name=record.name,
-            message=record.getMessage()
-            + (
-                "\n" + Formatter().formatException(ei=record.exc_info)
-                if record.exc_info
-                else ""
-            ),
+            message=self._format_message(record=record),
             module=record.module,
             pathname=record.pathname,
             line_number=record.lineno,
@@ -142,3 +151,10 @@ class DatabaseHandler(Handler):
                 self.count_matching_records, panel.logger_name
             ),
         )
+
+    @classmethod
+    def _format_message(cls, *, record: LogRecord) -> str:
+        message = record.getMessage()
+        if record.exc_info:
+            message += "\n" + Formatter().formatException(ei=record.exc_info)
+        return message

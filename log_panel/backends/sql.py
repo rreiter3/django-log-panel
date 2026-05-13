@@ -2,6 +2,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta, tzinfo
 from typing import Literal
 
+from django.db.models import Q
+
 from log_panel import conf
 from log_panel.backends.base import LogsBackend
 from log_panel.datetimes import to_database_datetime, to_display_datetime
@@ -138,7 +140,9 @@ class OrmBackend(LogsBackend):
         if levels is not None:
             qs = qs.filter(level__in=levels)
         if search:
-            qs = qs.filter(message__icontains=search)
+            qs = qs.filter(
+                Q(message__icontains=search) | Q(message_chunks__text__icontains=search)
+            ).distinct()
         if timestamp_from:
             qs = qs.filter(
                 timestamp__gte=to_database_datetime(
@@ -170,7 +174,7 @@ class OrmBackend(LogsBackend):
         ).order_by("-timestamp")
         raw_logs: LogQuerySet = (
             qs[offset:] if limit is None else qs[offset : offset + limit]
-        )
+        ).prefetch_related("message_chunks")
         return [
             {
                 "_id": str(object=log.pk),
@@ -179,7 +183,10 @@ class OrmBackend(LogsBackend):
                 ),
                 "level": log.level,
                 "logger_name": log.logger_name,
-                "message": log.message,
+                "message": log.get_full_message(),
+                "message_preview": log.message,
+                "message_size": log.message_size,
+                "message_chunked": log.message_chunked,
                 "module": log.module,
                 "pathname": log.pathname,
                 "line_number": log.line_number,
@@ -228,7 +235,9 @@ class OrmBackend(LogsBackend):
         if module:
             qs: LogQuerySet = qs.filter(module=module)
         if search:
-            qs: LogQuerySet = qs.filter(message__icontains=search)
+            qs: LogQuerySet = qs.filter(
+                Q(message__icontains=search) | Q(message_chunks__text__icontains=search)
+            ).distinct()
         if timestamp_from:
             qs = qs.filter(
                 timestamp__gte=to_database_datetime(
@@ -255,6 +264,8 @@ class OrmBackend(LogsBackend):
                 "level": log.level,
                 "logger_name": log.logger_name,
                 "message": log.message,
+                "message_size": log.message_size,
+                "message_chunked": log.message_chunked,
                 "module": log.module,
                 "pathname": log.pathname,
                 "line_number": log.line_number,

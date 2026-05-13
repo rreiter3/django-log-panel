@@ -21,6 +21,8 @@ By default, `log_panel` attaches a `DatabaseHandler` to the root logger during a
 - If a `DatabaseHandler` is already attached to the root logger, auto-attach is skipped and a warning is emitted.
 - Stored fields come directly from the log record. `LOGGING` formatters do not change the structured fields written by `log_panel`.
 - Exception tracebacks are appended automatically when `exc_info` is present.
+- Messages are stored in full by default. Large messages keep an inline preview on the log row and store the complete text in ordered chunks.
+- Recursive log-storage writes are skipped by the handler's recursion guard.
 
 Set `ATTACH_ROOT_HANDLER = False` when you want to manage handlers yourself in Django `LOGGING`.
 

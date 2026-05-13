@@ -21,6 +21,8 @@ DEFAULTS: dict[str, Any] = {
     "BACKEND": None,
     # Storage
     "DATABASE_ALIAS": None,
+    "MESSAGE_PREVIEW_LENGTH": 16384,
+    "MESSAGE_CHUNK_SIZE": 262144,
     "RETENTION_DAYS": 90,
     "CACHE_TIMEOUT_SECONDS": 30,
     # Auto-attach handler to root logger on startup

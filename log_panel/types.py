@@ -99,3 +99,16 @@ class ThresholdAlertEvent:
     module: str
     pathname: str
     line_number: int
+
+
+@dataclass(frozen=True, slots=True)
+class MessageParts:
+    """Structured representation of a stored log message."""
+
+    preview: str
+    chunks: list[str]
+    size: int
+
+    @property
+    def is_chunked(self) -> bool:
+        return bool(self.chunks)

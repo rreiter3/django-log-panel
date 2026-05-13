@@ -6,6 +6,7 @@ import pytest
 from django.test import override_settings
 
 from log_panel.backends.sql import OrmBackend
+from log_panel.models import Log
 from log_panel.types import RangeConfig, RangeUnit
 
 BUDAPEST = ZoneInfo("Europe/Budapest")
@@ -90,6 +91,71 @@ def test_get_log_table_filters_by_search(panel_factory, backend):
     )
     assert total == 1
     assert logs[0]["message"] == "database connection error"
+
+
+@pytest.mark.django_db
+@override_settings(
+    LOG_PANEL={
+        "MESSAGE_PREVIEW_LENGTH": 10,
+        "MESSAGE_CHUNK_SIZE": 12,
+    }
+)
+def test_get_log_table_searches_chunked_message_content(backend):
+    Log.objects.create_from_record(
+        timestamp=NOW_UTC,
+        level="INFO",
+        logger_name="myapp",
+        message="preview text with hidden needle in chunk",
+        module="views",
+        pathname="/app/views.py",
+        line_number=42,
+    )
+
+    logs, total = backend.get_log_table(
+        logger_name="myapp",
+        level="",
+        search="needle",
+        page=1,
+        page_size=10,
+        app_timezone=UTC,
+    )
+
+    assert total == 1
+    assert logs[0]["message"] == "preview te"
+    assert logs[0]["message_chunked"] is True
+
+
+@pytest.mark.django_db
+@override_settings(
+    LOG_PANEL={
+        "MESSAGE_PREVIEW_LENGTH": 10,
+        "MESSAGE_CHUNK_SIZE": 12,
+    }
+)
+def test_query_logs_returns_full_chunked_message(backend):
+    message = "preview text with full payload"
+    Log.objects.create_from_record(
+        timestamp=NOW_UTC,
+        level="INFO",
+        logger_name="myapp",
+        message=message,
+        module="views",
+        pathname="/app/views.py",
+        line_number=42,
+    )
+
+    logs = backend.query_logs(
+        logger_names=["myapp"],
+        levels=None,
+        search="full",
+        offset=0,
+        limit=10,
+        app_timezone=UTC,
+    )
+
+    assert logs[0]["message"] == message
+    assert logs[0]["message_preview"] == "preview te"
+    assert logs[0]["message_chunked"] is True
 
 
 @pytest.mark.django_db

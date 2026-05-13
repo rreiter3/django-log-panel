@@ -59,7 +59,15 @@
         <span class="log-level-default log-level-{{ log.level|lower }}">{{ log.level }}</span>
       </td>
       <td class="log-col-module">{{ log.module }}</td>
-      <td class="log-col-message">{{ log.message }}</td>
+      <td class="log-col-message">
+        {{ log.message }}
+        {% if log.message_chunked %}
+          <div class="log-message-meta">
+            <a href="{% url 'admin:log_panel_log_message' log._id %}">{% trans "Full message" %}</a>
+            <span>{{ log.message_size }} {% trans "characters" %}</span>
+          </div>
+        {% endif %}
+      </td>
     </tr>
     {% empty %}
       <tr><td colspan="4">{% trans "No log entries found." %}</td></tr>

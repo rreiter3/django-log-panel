@@ -8,6 +8,8 @@
 | --- | --- | --- |
 | `BACKEND` | `None` | Dotted path to a custom backend class. Overrides auto-detection. |
 | `DATABASE_ALIAS` | `None` | Database alias for log storage (SQL or MongoDB). The backend engine is detected from the `DATABASES` entry — set `ENGINE` to `"django_mongodb_backend"` for MongoDB or any Django SQL backend for SQL. |
+| `MESSAGE_PREVIEW_LENGTH` | `16384` | Number of characters kept inline on the `Log` row before larger messages are moved into ordered chunks. |
+| `MESSAGE_CHUNK_SIZE` | `262144` | Number of characters stored per large-message chunk. |
 | `RETENTION_DAYS` | `90` | Retention window in days. Used by the `delete_old_logs` cleanup command. |
 
 ## Capture and alert settings
@@ -19,7 +21,7 @@
 | `THRESHOLDS` | `{"WARNING": 1, "ERROR": 1, "CRITICAL": 1}` | Per-level alert thresholds for the `log_threshold_reached` signal. Omit a level to keep its default. Set a level to `None` to disable it. |
 
 !!! note "Ignored loggers"
-    `DatabaseHandler` silently skips records from `pymongo.*` loggers. pymongo's background monitor thread emits DEBUG logs during connection setup, which would cause recursive writes back to MongoDB.
+    `DatabaseHandler` silently skips records from `pymongo.*` loggers. pymongo's background monitor thread emits DEBUG logs during connection setup, which would cause recursive writes back to MongoDB. Django database and SQL loggers are still captured.
 
 ## Admin UI and access settings
 

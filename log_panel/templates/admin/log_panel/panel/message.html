@@ -1,0 +1,42 @@
+{% extends "admin/log_panel/panel/base.html" %}
+{% load i18n %}
+
+{% block log_panel_content %}
+{% include "admin/log_panel/panel/table/style.html" %}
+
+<p class="log-back">
+  <a href="{% url 'admin:log_panel_log_changelist' %}?logger_name={{ log.logger_name|urlencode }}">&laquo; {% trans "Back to log entries" %}</a>
+</p>
+
+<table id="result_list">
+  <tbody>
+    <tr>
+      <th scope="row">{% trans "Timestamp" %}</th>
+      <td>{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+    </tr>
+    <tr>
+      <th scope="row">{% trans "Level" %}</th>
+      <td><span class="log-level-default log-level-{{ log.level|lower }}">{{ log.level }}</span></td>
+    </tr>
+    <tr>
+      <th scope="row">{% trans "Logger" %}</th>
+      <td>{{ log.logger_name }}</td>
+    </tr>
+    <tr>
+      <th scope="row">{% trans "Module" %}</th>
+      <td>{{ log.module }}</td>
+    </tr>
+    <tr>
+      <th scope="row">{% trans "Path" %}</th>
+      <td>{{ log.pathname }}:{{ log.line_number }}</td>
+    </tr>
+    <tr>
+      <th scope="row">{% trans "Size" %}</th>
+      <td>{{ log.message_size }} {% trans "characters" %}</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>{% trans "Message" %}</h2>
+<pre class="log-full-message">{{ log_message }}</pre>
+{% endblock %}

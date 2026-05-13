@@ -5,7 +5,7 @@ from django.test import override_settings
 
 from log_panel.backends.sql import OrmBackend
 from log_panel.managers import LogQueryset, LogReader
-from log_panel.models import Log
+from log_panel.models import Log, LogMessageChunk
 from log_panel.querysets import levels_at_or_above
 
 
@@ -284,3 +284,34 @@ def test_create_from_record_persists_all_fields():
     assert panel.module == "views"
     assert panel.pathname == "/app/views.py"
     assert panel.line_number == 99
+
+
+@pytest.mark.django_db
+@override_settings(
+    LOG_PANEL={
+        "MESSAGE_PREVIEW_LENGTH": 12,
+        "MESSAGE_CHUNK_SIZE": 10,
+    }
+)
+def test_create_from_record_chunks_large_message():
+    message = "abcdefghijklmnopqrstuvwxyz"
+
+    panel = Log.objects.create_from_record(
+        timestamp=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
+        level="ERROR",
+        logger_name="myapp.views",
+        message=message,
+        module="views",
+        pathname="/app/views.py",
+        line_number=99,
+    )
+
+    assert panel.message == "abcdefghijkl"
+    assert panel.message_size == len(message)
+    assert panel.message_chunked is True
+    assert list(
+        LogMessageChunk.objects.filter(log=panel)
+        .order_by("index")
+        .values_list("text", flat=True)
+    ) == ["abcdefghij", "klmnopqrst", "uvwxyz"]
+    assert panel.get_full_message() == message

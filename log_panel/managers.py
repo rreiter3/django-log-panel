@@ -7,6 +7,7 @@ from django.db import models
 
 from log_panel.datetimes import to_database_datetime
 from log_panel.querysets import LogQuerySet, LogQueryset
+from log_panel.types import MessageParts
 
 if TYPE_CHECKING:
     from log_panel.models import Log
@@ -62,12 +63,44 @@ class LogRecordManager(models.Manager):
         line_number: int,
     ) -> Log:
         """Persist a single log record."""
-        return self.create(
+        message_parts = self._split_message(message=message)
+        log: Log = self.create(
             timestamp=to_database_datetime(value=timestamp),
             level=level,
             logger_name=logger_name,
-            message=message,
+            message=message_parts.preview,
+            message_size=message_parts.size,
+            message_chunked=message_parts.is_chunked,
             module=module,
             pathname=pathname,
             line_number=line_number,
+        )
+        if message_parts.is_chunked:
+            from log_panel.models import LogMessageChunk
+
+            LogMessageChunk.objects.db_manager(self.db).bulk_create(
+                (
+                    LogMessageChunk(log=log, index=index, text=chunk)
+                    for index, chunk in enumerate(message_parts.chunks)
+                ),
+                batch_size=100,
+            )
+        return log
+
+    @staticmethod
+    def _split_message(*, message: str) -> MessageParts:
+        from log_panel import conf
+
+        preview_length: int = conf.get_setting(key="MESSAGE_PREVIEW_LENGTH")
+        chunk_size: int = conf.get_setting(key="MESSAGE_CHUNK_SIZE")
+        if len(message) <= preview_length:
+            return MessageParts(preview=message, chunks=[], size=len(message))
+        chunks: list[str] = [
+            message[index : index + chunk_size]
+            for index in range(0, len(message), chunk_size)
+        ]
+        return MessageParts(
+            preview=message[:preview_length],
+            chunks=chunks,
+            size=len(message),
         )
