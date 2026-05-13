@@ -4,46 +4,43 @@ from typing import Literal
 
 from log_panel import conf
 from log_panel.backends.base import LogsBackend
-from log_panel.models import Panel
-from log_panel.querysets import PanelQuerySet
+from log_panel.models import Log
+from log_panel.querysets import LogQuerySet
 from log_panel.types import LogLevel, RangeConfig, SlotStatus
 
 
-class SqlBackend(LogsBackend):
-    """Read log data from a SQL database through the Django ORM.
+class OrmBackend(LogsBackend):
+    """
+    Read log data through the Django ORM.
 
-    Supports any database engine that Django supports (PostgreSQL, MySQL, SQLite, MSSQL).
+    Supports any database engine that Django supports, including SQL databases
+    (PostgreSQL, MySQL, SQLite, MSSQL) and MongoDB via ``django-mongodb-backend``.
     Time-bucket aggregation uses Django's ``TruncHour`` / ``TruncDay`` with timezone support.
     Message search uses case-insensitive ``icontains``.
 
-    Database routing is handled by ``LogsRouter`` — no explicit alias is needed here.
     """
 
     def get_queryset(self):
-        """Return a base ``PanelQuerySet`` routed by ``LogsRouter``."""
-        return Panel.objects.all()
+        """Return a base ``LogQuerySet`` routed by ``LogsRouter``."""
+        return Log.objects.all()
 
     def get_logger_cards(
         self, now_utc: datetime, range_config: RangeConfig, app_timezone: tzinfo
     ) -> list[dict]:
-        """Aggregate per-logger stats and build timeline slots via Django ORM.
+        """
+        Aggregate per-logger stats and build timeline slots.
 
-        Delegates card aggregation to ``PanelQuerySet.cards_aggregation`` and
-        timeline bucketing to ``PanelQuerySet.timeline_aggregation``, then
+        Delegates card aggregation to ``LogQuerySet.cards_aggregation`` and
+        timeline bucketing to ``LogQuerySet.timeline_aggregation``, then
         assembles final row dicts with timeline slot labels and statuses.
-
-        Args:
-            now_utc: Current UTC datetime (timezone-aware).
-            range_config: Determines time range, bucket unit, slot count, and label format.
-            app_timezone: Timezone used for slot truncation and display labels.
         """
         one_hour_ago: datetime = now_utc - timedelta(hours=1)
         cutoff: datetime = now_utc - range_config.delta
 
-        cards: PanelQuerySet = self.get_queryset().cards_aggregation(
+        cards: LogQuerySet = self.get_queryset().cards_aggregation(
             one_hour_ago=one_hour_ago
         )
-        timeline_qs: PanelQuerySet = self.get_queryset().timeline_aggregation(
+        timeline_qs: LogQuerySet = self.get_queryset().timeline_aggregation(
             cutoff=cutoff, range_config=range_config, app_timezone=app_timezone
         )
 
@@ -127,8 +124,9 @@ class SqlBackend(LogsBackend):
         search: str,
         timestamp_from: datetime | None,
         timestamp_to: datetime | None,
-    ) -> PanelQuerySet:
-        qs: PanelQuerySet = self.get_queryset()
+    ) -> LogQuerySet:
+        """Apply the given filters to a base queryset."""
+        qs: LogQuerySet = self.get_queryset()
         if logger_names is not None:
             qs = qs.filter(logger_name__in=logger_names)
         if levels is not None:
@@ -152,10 +150,11 @@ class SqlBackend(LogsBackend):
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
     ) -> list[dict]:
-        qs: PanelQuerySet = self._apply_log_filters(
+        """Query individual log entries with optional level and message filters."""
+        qs: LogQuerySet = self._apply_log_filters(
             logger_names, levels, search, timestamp_from, timestamp_to
         ).order_by("-timestamp")
-        raw_logs: PanelQuerySet = (
+        raw_logs: LogQuerySet = (
             qs[offset:] if limit is None else qs[offset : offset + limit]
         )
         return [
@@ -180,6 +179,7 @@ class SqlBackend(LogsBackend):
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
     ) -> int:
+        """Count log entries matching the given filters, for pagination purposes."""
         return self._apply_log_filters(
             logger_names, levels, search, timestamp_from, timestamp_to
         ).count()
@@ -187,7 +187,7 @@ class SqlBackend(LogsBackend):
     def get_log_table(
         self,
         logger_name: str,
-        level: "LogLevel | str",
+        level: LogLevel | str,
         search: str,
         page: int,
         page_size: int,
@@ -195,26 +195,12 @@ class SqlBackend(LogsBackend):
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
     ) -> tuple[list[dict], int]:
-        """Query individual log entries with optional level and message filters.
-
-        Note: message search uses ``icontains`` (case-insensitive substring), not regex.
-
-        Args:
-            logger_name: Filter to this logger.
-            level: One of the ``LogLevel`` literals (``"DEBUG"``, ``"INFO"``, etc.) or
-                empty string to return all levels.
-            search: Message substring filter, or empty string to skip.
-            page: 1-based page number.
-            page_size: Number of entries per page.
-            app_timezone: Timezone for timestamp conversion in the returned dicts.
-            timestamp_from: Optional inclusive lower bound for log timestamps.
-            timestamp_to: Optional exclusive upper bound for log timestamps.
-        """
-        qs: PanelQuerySet = self.get_queryset().filter(logger_name=logger_name)
+        """Query individual log entries with optional level and message filters."""
+        qs: LogQuerySet = self.get_queryset().filter(logger_name=logger_name)
         if level:
-            qs: PanelQuerySet = qs.filter(level=level)
+            qs: LogQuerySet = qs.filter(level=level)
         if search:
-            qs: PanelQuerySet = qs.filter(message__icontains=search)
+            qs: LogQuerySet = qs.filter(message__icontains=search)
         if timestamp_from:
             qs = qs.filter(timestamp__gte=timestamp_from)
         if timestamp_to:
@@ -222,7 +208,7 @@ class SqlBackend(LogsBackend):
 
         total: int = qs.count()
         skip: int = (page - 1) * page_size
-        raw_logs: PanelQuerySet = qs.order_by("-timestamp")[skip : skip + page_size]
+        raw_logs: LogQuerySet = qs.order_by("-timestamp")[skip : skip + page_size]
 
         logs: list[dict] = [
             {

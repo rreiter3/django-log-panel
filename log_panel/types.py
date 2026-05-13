@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Literal, cast
 
@@ -72,3 +72,30 @@ class RangeConfig:
             format=raw["format"],
             label=raw.get("label"),
         )
+
+
+@dataclass
+class LogFilters:
+    logger_names: list[str] | None = None
+    levels: list[str] | None = None
+    search: str = ""
+    timestamp_from: datetime | None = None
+    timestamp_to: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ThresholdAlertEvent:
+    """Payload emitted when a logger crosses a configured threshold."""
+
+    logger_name: str
+    threshold_level: LogLevel
+    record_level: LogLevel
+    threshold: int
+    matching_count: int
+    timestamp: datetime
+    window_start: datetime
+    window_end: datetime
+    message: str
+    module: str
+    pathname: str
+    line_number: int

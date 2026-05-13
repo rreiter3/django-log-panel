@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 
 from log_panel.conf import reset_backend_cache
-from log_panel.models import Panel
+from log_panel.models import Log
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +46,7 @@ def log_record_factory():
 
 @pytest.fixture
 def panel_factory(db):
-    """Return a callable that creates Panel instances."""
+    """Return a callable that creates Log instances."""
 
     def make_panel(**kwargs):
         defaults = {
@@ -59,6 +59,6 @@ def panel_factory(db):
             "line_number": 42,
         }
         defaults.update(kwargs)
-        return Panel.objects.create(**defaults)
+        return Log.objects.create(**defaults)
 
     return make_panel

@@ -2,7 +2,7 @@ import django.contrib.auth.models as auth_models
 import pytest
 from django.test import override_settings
 
-from log_panel.models import Panel
+from log_panel.models import Log
 from log_panel.routers import LogsRouter
 
 
@@ -13,7 +13,7 @@ def router():
 
 @override_settings(LOG_PANEL={"DATABASE_ALIAS": "logs"})
 def test_db_for_read_returns_alias_for_panel_model(router):
-    assert router.db_for_read(Panel) == "logs"
+    assert router.db_for_read(Log) == "logs"
 
 
 def test_db_for_read_returns_none_for_other_model(router):
@@ -22,7 +22,7 @@ def test_db_for_read_returns_none_for_other_model(router):
 
 @override_settings(LOG_PANEL={"DATABASE_ALIAS": "logs"})
 def test_db_for_write_returns_alias_for_panel_model(router):
-    assert router.db_for_write(Panel) == "logs"
+    assert router.db_for_write(Log) == "logs"
 
 
 def test_db_for_write_returns_none_for_other_model(router):

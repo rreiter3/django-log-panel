@@ -9,15 +9,15 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone as django_timezone
 
 from log_panel import conf
-from log_panel.admin import PanelAdmin
+from log_panel.admin import LogAdmin
 from log_panel.filters import CardListFilter, TableListFilter
-from log_panel.models import Panel
+from log_panel.models import Log
 from log_panel.types import CardFilter, RangeConfig, RangeUnit
 
 
 @pytest.fixture
 def panel_admin():
-    admin = PanelAdmin(Panel, AdminSite())
+    admin = LogAdmin(Log, AdminSite())
     admin.admin_site.each_context = lambda req: {}  # ty: ignore[invalid-assignment]
     return admin
 

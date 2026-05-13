@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from django.test import override_settings
 
-from log_panel.backends.sql import SqlBackend
+from log_panel.backends.sql import OrmBackend
 from log_panel.types import RangeConfig, RangeUnit
 
 BUDAPEST = ZoneInfo("Europe/Budapest")
@@ -20,7 +20,7 @@ HOUR_RANGE = RangeConfig(
 
 @pytest.fixture
 def backend():
-    return SqlBackend()
+    return OrmBackend()
 
 
 @pytest.mark.django_db

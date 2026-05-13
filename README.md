@@ -54,7 +54,7 @@
 
 - Python >= 3.12
 - Django >= 5.2
-- `pymongo>=4.16.0,<5` *only when using the MongoDB backend*
+- `django-mongodb-backend` *only when using the MongoDB backend (version must match your Django version, e.g. 5.2.x for Django 5.2, 6.0.x for Django 6.0)*
 - A running, reachable MongoDB instance *when using the MongoDB backend*
 
 ## Installation
@@ -67,7 +67,7 @@ uv add django-log-panel
 pip install django-log-panel
 ```
 
-For MongoDB support, install the optional extra. This installs the Python client only; you still need an actual MongoDB instance to connect to:
+For MongoDB support, install the optional extra. This installs the official Django MongoDB backend; you still need an actual MongoDB instance to connect to:
 
 ```bash
 # with uv
@@ -79,10 +79,12 @@ pip install "django-log-panel[mongodb]"
 
 ## Choose a backend
 
-| Backend | Use it when                                                             | Retention                                                     | Extra setup                                                                                                             |
-| ------- | ----------------------------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| MongoDB | You want append-only logging with cheap writes and MongoDB TTL cleanup. | Automatic TTL expiry on the collection.                       | Install the `mongodb` extra, run a reachable MongoDB instance, and set `CONNECTION_STRING`.                         |
-| SQL     | You want logs in a Django-managed relational database.                  | Run the `delete_old_logs` management command on a schedule. | Add `LogsRouter`, point `DATABASE_ALIAS` at the target database, and run the `log_panel` migration on that alias. |
+| Backend | Use it when                                                               | Retention                                                     | Extra setup                                                                                                                    |
+| ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| MongoDB | You want append-only logging with cheap writes and flexible document storage. | Run the `delete_old_logs` management command on a schedule. | Install the `mongodb` extra, add a `DATABASES` entry with `ENGINE` `"django_mongodb_backend"`, and set `DATABASE_ALIAS`. |
+| SQL     | You want logs in a Django-managed relational database.                    | Run the `delete_old_logs` management command on a schedule. | Add `LogsRouter`, point `DATABASE_ALIAS` at the target database, and run the `log_panel` migration on that alias.        |
+
+Both backends use the same `Log` model, `DatabaseHandler`, and ORM queries. The only difference is the `ENGINE` in your `DATABASES` entry. `log_panel` detects which database engine is behind the alias automatically — no backend-specific configuration is needed.
 
 ## Quick start
 
@@ -100,12 +102,29 @@ INSTALLED_APPS = [
 MongoDB:
 
 ```python
+DATABASES["logs"] = {
+    "ENGINE": "django_mongodb_backend",
+    "HOST": "mongodb://localhost:27017",  # or a full mongodb+srv:// URI
+    "NAME": "myapp_logs",
+    # "USER": "...",       # if auth is enabled
+    # "PASSWORD": "...",
+    # "PORT": 27017,       # optional, defaults to 27017
+}
+
+DATABASE_ROUTERS = [
+    "log_panel.routers.LogsRouter",
+]
+
 LOG_PANEL = {
-    "CONNECTION_STRING": "mongodb://localhost:27017",
-    "DB_NAME": "myapp_logs",
-    "COLLECTION": "logs",
+    "DATABASE_ALIAS": "logs",
     "TTL_DAYS": 90,
 }
+```
+
+Then run the migration on the logging database:
+
+```bash
+python manage.py migrate log_panel --database=logs
 ```
 
 This example assumes a MongoDB instance is running and reachable at `localhost:27017`.
@@ -151,7 +170,7 @@ Once configured, any standard Python logger that flows through the selected hand
 ## How log capture works
 
 - `LOG_PANEL` selects how the admin reads log data.
-- By default, `log_panel` auto-attaches the matching handler to the root logger at startup.
+- By default, `log_panel` auto-attaches a `DatabaseHandler` to the root logger at startup.
 - Set `ATTACH_ROOT_HANDLER = False` when you want full control through Django `LOGGING`.
 - `LOG_LEVEL` only affects the auto-attached root handler.
 - Stored fields come from the log record itself; `LOGGING` formatters do not reshape the stored data.
@@ -160,14 +179,14 @@ Full setup notes and manual `LOGGING` examples are in the backend guide.
 
 ## Querying logs in custom views
 
-`LogManager` and `LogQueryset` let you fetch logs outside the admin panel — in your own views, APIs, or background tasks with a chainable filter interface that works with both SQL and MongoDB backends.
+`LogReader` and `LogQueryset` let you fetch logs outside the admin panel — in your own views, APIs, or background tasks with a chainable filter interface that works with both SQL and MongoDB backends.
 
-Subclass `LogManager` and override `get_queryset()` to apply default role-based restrictions. The returned `LogQueryset` behaves like a standard Python sequence — iterate it, slice it, or pass it to Django's `Paginator`:
+Subclass `LogReader` and override `get_queryset()` to apply default role-based restrictions. The returned `LogQueryset` behaves like a standard Python sequence — iterate it, slice it, or pass it to Django's `Paginator`:
 
 ```python
-from log_panel.managers import LogManager
+from log_panel.managers import LogReader
 
-class OperatorLogManager(LogManager):
+class OperatorLogReader(LogReader):
     def get_queryset(self):
         return super().get_queryset().filter(
             logger_names=["orders", "machines"],
@@ -175,7 +194,7 @@ class OperatorLogManager(LogManager):
         )
 
 # In a Django view:
-manager = OperatorLogManager()
+manager = OperatorLogReader()
 qs = manager.get_queryset().filter(search=request.GET.get("q", ""))
 
 list(qs)          # all matching entries

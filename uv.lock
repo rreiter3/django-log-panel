@@ -120,7 +120,7 @@ wheels = [
 
 [[package]]
 name = "django-log-panel"
-version = "0.1.12"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "django" },
@@ -128,13 +128,13 @@ dependencies = [
 
 [package.optional-dependencies]
 mongodb = [
-    { name = "pymongo" },
+    { name = "django-mongodb-backend" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "django-mongodb-backend" },
     { name = "django-stubs" },
-    { name = "pymongo" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-django" },
@@ -146,20 +146,33 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "django", specifier = ">=5.2" },
-    { name = "pymongo", marker = "extra == 'mongodb'", specifier = ">=4.16.0,<5" },
+    { name = "django-mongodb-backend", marker = "extra == 'mongodb'", specifier = ">=5.2,<7" },
 ]
 provides-extras = ["mongodb"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "django-mongodb-backend", specifier = ">=5.2,<7" },
     { name = "django-stubs", specifier = "==6.0.2" },
-    { name = "pymongo", specifier = ">=4.16.0,<5" },
     { name = "pytest", specifier = "==9.0.3" },
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "pytest-django", specifier = ">=4.9" },
     { name = "ruff", specifier = ">=0.15.10" },
     { name = "time-machine", specifier = ">=2.16" },
     { name = "ty", specifier = ">=0.0.29" },
+]
+
+[[package]]
+name = "django-mongodb-backend"
+version = "6.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "pymongo" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e2/bc/9ad2e98168e763e9a4791254971e6a69cddb1eff42df51e6299c1e162711/django_mongodb_backend-6.0.3.tar.gz", hash = "sha256:d5bbe460c4f1d6366242993c8894d03752a789737ef9dcd09b496bb9135d360f", size = 233421, upload-time = "2026-04-02T18:48:17.007Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/5a/12275b77dba2993cd2330721c595d41f421fe77812e5fa3a046a6cda7a1d/django_mongodb_backend-6.0.3-py3-none-any.whl", hash = "sha256:a9d85eca7792834189518d9425014943a201877626cccc4893a3f27324d768b3", size = 122426, upload-time = "2026-04-02T18:48:15.545Z" },
 ]
 
 [[package]]

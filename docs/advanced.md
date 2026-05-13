@@ -100,12 +100,12 @@ def on_threshold_reached(sender, event: ThresholdAlertEvent, **kwargs):
 
 By default, both handlers write each record immediately. That is safest, but one database write per log call can become a bottleneck on busy applications.
 
-Python's standard `logging.handlers.MemoryHandler` can buffer records and flush them when:
+For high-volume logging across any backend, Python's standard `logging.handlers.MemoryHandler` can buffer records and flush them when:
 
 - the buffer reaches `capacity`
 - a record at or above `flushLevel` is emitted
 
-Example using the SQL handler as the flush target:
+Example using the `DatabaseHandler` as the flush target:
 
 ```python
 LOGGING = {
@@ -127,8 +127,6 @@ LOGGING = {
 }
 ```
 
-For MongoDB, use the same pattern but make the target handler a `log_panel.handlers.MongoDBHandler`.
-
 | Setting | Effect |
 | --- | --- |
 | Lower `capacity` | Smaller exposure window and more frequent writes. |
@@ -138,9 +136,9 @@ For MongoDB, use the same pattern but make the target handler a `log_panel.handl
 
 `MemoryHandler` flushes on `close()`, so normal shutdown does not lose buffered records. Only abrupt process termination can lose records that have not been flushed yet.
 
-## SQL retention cleanup
+## Retention cleanup
 
-The `delete_old_logs` management command deletes SQL `Panel` rows older than the retention window. It is only relevant for the SQL backend.
+The `delete_old_logs` management command deletes `Panel` rows older than the retention window. It works with both SQL and MongoDB backends.
 
 ```bash
 python manage.py delete_old_logs [--days DAYS] [--batch-size BATCH_SIZE] [--dry-run]

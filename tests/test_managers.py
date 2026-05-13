@@ -3,9 +3,10 @@ from datetime import UTC, datetime
 import pytest
 from django.test import override_settings
 
-from log_panel.backends.sql import SqlBackend
-from log_panel.managers import LogManager, LogQueryset, levels_at_or_above
-from log_panel.models import Panel
+from log_panel.backends.sql import OrmBackend
+from log_panel.managers import LogQueryset, LogReader
+from log_panel.models import Log
+from log_panel.querysets import levels_at_or_above
 
 
 def test_levels_at_or_above_debug_returns_all_levels():
@@ -102,7 +103,7 @@ def test_getitem_invalid_key_raises_type_error():
 @pytest.mark.django_db
 def test_getitem_out_of_range_raises_index_error():
     with pytest.raises(IndexError):
-        LogQueryset(SqlBackend())[100]
+        LogQueryset(OrmBackend())[100]
 
 
 def test_len_returns_zero_when_backend_is_none():
@@ -121,7 +122,7 @@ def test_getitem_returns_empty_list_for_slice_when_backend_is_none():
 def test_len_returns_total_count(panel_factory):
     for _ in range(4):
         panel_factory()
-    assert len(LogQueryset(SqlBackend())) == 4
+    assert len(LogQueryset(OrmBackend())) == 4
 
 
 @pytest.mark.django_db
@@ -130,7 +131,7 @@ def test_len_filters_by_logger_names(panel_factory):
     panel_factory(logger_name="machines")
     panel_factory(logger_name="auth")
     assert (
-        len(LogQueryset(SqlBackend()).filter(logger_names=["orders", "machines"])) == 2
+        len(LogQueryset(OrmBackend()).filter(logger_names=["orders", "machines"])) == 2
     )
 
 
@@ -138,14 +139,14 @@ def test_len_filters_by_logger_names(panel_factory):
 def test_len_filters_by_min_level(panel_factory):
     for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         panel_factory(level=level)
-    assert len(LogQueryset(SqlBackend()).filter(min_level="WARNING")) == 3
+    assert len(LogQueryset(OrmBackend()).filter(min_level="WARNING")) == 3
 
 
 @pytest.mark.django_db
 def test_iter_returns_all_entries(panel_factory):
     for _ in range(3):
         panel_factory()
-    logs = list(LogQueryset(SqlBackend()))
+    logs = list(LogQueryset(OrmBackend()))
     assert len(logs) == 3
 
 
@@ -154,7 +155,7 @@ def test_iter_filters_by_logger_names(panel_factory):
     panel_factory(logger_name="orders")
     panel_factory(logger_name="machines")
     panel_factory(logger_name="auth")
-    logs = list(LogQueryset(SqlBackend()).filter(logger_names=["orders", "machines"]))
+    logs = list(LogQueryset(OrmBackend()).filter(logger_names=["orders", "machines"]))
     assert len(logs) == 2
     assert all(log["logger_name"] in {"orders", "machines"} for log in logs)
 
@@ -163,7 +164,7 @@ def test_iter_filters_by_logger_names(panel_factory):
 def test_iter_filters_by_min_level(panel_factory):
     for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         panel_factory(level=level)
-    logs = list(LogQueryset(SqlBackend()).filter(min_level="WARNING"))
+    logs = list(LogQueryset(OrmBackend()).filter(min_level="WARNING"))
     assert len(logs) == 3
     assert all(log["level"] in {"WARNING", "ERROR", "CRITICAL"} for log in logs)
 
@@ -172,7 +173,7 @@ def test_iter_filters_by_min_level(panel_factory):
 def test_iter_filters_by_search(panel_factory):
     panel_factory(message="timeout connecting to database")
     panel_factory(message="user logged in")
-    logs = list(LogQueryset(SqlBackend()).filter(search="timeout"))
+    logs = list(LogQueryset(OrmBackend()).filter(search="timeout"))
     assert len(logs) == 1
     assert "timeout" in logs[0]["message"]
 
@@ -181,7 +182,7 @@ def test_iter_filters_by_search(panel_factory):
 def test_getitem_slice_returns_correct_count(panel_factory):
     for _ in range(5):
         panel_factory()
-    result = LogQueryset(SqlBackend())[0:2]
+    result = LogQueryset(OrmBackend())[0:2]
     assert len(result) == 2
 
 
@@ -189,24 +190,24 @@ def test_getitem_slice_returns_correct_count(panel_factory):
 def test_getitem_slice_offset_skips_entries(panel_factory):
     for _ in range(5):
         panel_factory()
-    all_logs = list(LogQueryset(SqlBackend()))
-    sliced = LogQueryset(SqlBackend())[2:4]
+    all_logs = list(LogQueryset(OrmBackend()))
+    sliced = LogQueryset(OrmBackend())[2:4]
     assert sliced == all_logs[2:4]
 
 
 @pytest.mark.django_db
 def test_getitem_int_returns_single_entry(panel_factory):
     panel_factory(message="only entry")
-    result = LogQueryset(SqlBackend())[0]
+    result = LogQueryset(OrmBackend())[0]
     assert result["message"] == "only entry"
 
 
 def test_log_manager_get_queryset_returns_log_queryset():
-    assert isinstance(LogManager().get_queryset(), LogQueryset)
+    assert isinstance(LogReader().get_queryset(), LogQueryset)
 
 
 def test_log_manager_subclass_applies_default_filters():
-    class OperatorManager(LogManager):
+    class OperatorManager(LogReader):
         def get_queryset(self):
             return (
                 super()
@@ -229,7 +230,7 @@ def test_log_manager_subclass_restricts_results(panel_factory):
     panel_factory(logger_name="orders", level="DEBUG")
     panel_factory(logger_name="auth", level="WARNING")
 
-    class OperatorManager(LogManager):
+    class OperatorManager(LogReader):
         def get_queryset(self):
             return (
                 super()
@@ -250,7 +251,7 @@ def test_log_manager_subclass_restricts_results(panel_factory):
 @pytest.mark.django_db
 def test_create_from_record_returns_panel_instance():
     ts = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
-    result = Panel.objects.create_from_record(
+    result = Log.objects.create_from_record(
         timestamp=ts,
         level="ERROR",
         logger_name="myapp.views",
@@ -259,13 +260,13 @@ def test_create_from_record_returns_panel_instance():
         pathname="/app/views.py",
         line_number=99,
     )
-    assert isinstance(result, Panel)
+    assert isinstance(result, Log)
 
 
 @pytest.mark.django_db
 def test_create_from_record_persists_all_fields():
     ts = datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC)
-    Panel.objects.create_from_record(
+    Log.objects.create_from_record(
         timestamp=ts,
         level="ERROR",
         logger_name="myapp.views",
@@ -275,7 +276,7 @@ def test_create_from_record_persists_all_fields():
         line_number=99,
     )
 
-    panel = Panel.objects.get()
+    panel = Log.objects.get()
     assert panel.timestamp == ts
     assert panel.level == "ERROR"
     assert panel.logger_name == "myapp.views"
