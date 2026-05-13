@@ -13,3 +13,5 @@ htmlcov
 .vscode
 # Application
 *.egg-info
+# Docs
+site

@@ -32,6 +32,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/rreiter3/django-log-panel"
+Documentation = "https://rreiter3.github.io/django-log-panel/"
 Repository = "https://github.com/rreiter3/django-log-panel"
 Issues = "https://github.com/rreiter3/django-log-panel/issues"
 
@@ -79,6 +80,11 @@ show_missing = true
 skip_covered = false
 fail_under = 90
 
+[tool.ty]
+
+[tool.ty.src]
+exclude = ["docs/"]
+
 [dependency-groups]
 dev = [
     "django-mongodb-backend>=5.2,<7",
@@ -89,4 +95,10 @@ dev = [
     "ruff>=0.15.10",
     "time-machine>=2.16",
     "ty>=0.0.29",
+]
+docs = [
+    "mkdocs-material>=9.6",
+    "mkdocstrings[python]>=0.29",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
 ]
