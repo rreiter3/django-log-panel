@@ -1,5 +1,3 @@
-"""Generate the API reference pages and navigation."""
-
 from pathlib import Path
 
 import mkdocs_gen_files
@@ -13,16 +11,16 @@ for path in sorted(src.rglob("*.py")):
     if "migrations" in path.parts or "management" in path.parts:
         continue
 
-    module_path = path.with_suffix("")
-    doc_path = path.with_suffix(".md")
+    module_path: Path = path.with_suffix(suffix="")
+    doc_path: Path = path.with_suffix(suffix=".md")
     full_doc_path = Path("reference", doc_path)
 
-    parts = tuple(module_path.parts)
+    parts: tuple[str, ...] = tuple(module_path.parts)
 
     if parts[-1] == "__init__":
-        parts = parts[:-1]
-        doc_path = doc_path.with_name("index.md")
-        full_doc_path = full_doc_path.with_name("index.md")
+        parts: tuple[str, ...] = parts[:-1]
+        doc_path: Path = doc_path.with_name(name="index.md")
+        full_doc_path: Path = full_doc_path.with_name(name="index.md")
 
     if not parts:
         continue
