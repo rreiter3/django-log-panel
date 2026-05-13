@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import threading
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -110,6 +112,91 @@ def test_database_handler_emit_calls_handle_error_on_exception(log_record_factor
         with patch.object(handler, "handleError") as mock_handle_error:
             handler.emit(record)
             mock_handle_error.assert_called_once_with(record)
+
+
+def test_database_handler_emit_from_async_context_uses_worker_thread(
+    log_record_factory,
+):
+    handler = DatabaseHandler()
+    record = log_record_factory()
+    caller_thread_id = threading.get_ident()
+    worker_thread_ids: list[int] = []
+
+    def persist_record(*, record: logging.LogRecord) -> None:
+        worker_thread_ids.append(threading.get_ident())
+
+    async def emit_record() -> None:
+        handler.handle(record)
+
+    with patch.object(
+        handler, "_persist_record", side_effect=persist_record
+    ) as mock_persist_record:
+        with patch.object(handler, "handleError") as mock_handle_error:
+            with patch(
+                "log_panel.handlers.sql.close_old_connections"
+            ) as mock_close_old_connections:
+                asyncio.run(emit_record())
+
+    mock_persist_record.assert_called_once_with(record=record)
+    mock_handle_error.assert_not_called()
+    assert len(worker_thread_ids) == 1
+    assert worker_thread_ids[0] != caller_thread_id
+    assert mock_close_old_connections.call_count == 2
+
+
+def test_database_handler_async_worker_skips_reentrant_call(log_record_factory):
+    handler = DatabaseHandler()
+    outer_record = log_record_factory(msg="outer")
+    nested_record = log_record_factory(msg="nested")
+    persisted_messages: list[str] = []
+
+    def persist_record(*, record: logging.LogRecord) -> None:
+        persisted_messages.append(record.getMessage())
+        handler.handle(nested_record)
+
+    async def emit_record() -> None:
+        handler.handle(outer_record)
+
+    with patch.object(handler, "_persist_record", side_effect=persist_record):
+        asyncio.run(emit_record())
+
+    assert persisted_messages == ["outer"]
+
+
+def test_database_handler_async_worker_silently_discards_database_error(
+    log_record_factory,
+):
+    from django.db import ProgrammingError
+
+    handler = DatabaseHandler()
+    record = log_record_factory()
+
+    async def emit_record() -> None:
+        handler.emit(record)
+
+    with patch.object(
+        handler, "_persist_record", side_effect=ProgrammingError("no table")
+    ):
+        with patch.object(handler, "handleError") as mock_handle_error:
+            asyncio.run(emit_record())
+
+    mock_handle_error.assert_not_called()
+
+
+def test_database_handler_async_worker_calls_handle_error_on_exception(
+    log_record_factory,
+):
+    handler = DatabaseHandler()
+    record = log_record_factory()
+
+    async def emit_record() -> None:
+        handler.emit(record)
+
+    with patch.object(handler, "_persist_record", side_effect=RuntimeError("db down")):
+        with patch.object(handler, "handleError") as mock_handle_error:
+            asyncio.run(emit_record())
+
+    mock_handle_error.assert_called_once_with(record)
 
 
 @pytest.mark.django_db
