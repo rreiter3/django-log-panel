@@ -95,6 +95,8 @@ For a replica set or sharded cluster, include all hosts in `HOST`:
 python manage.py migrate log_panel --database=logs
 ```
 
+The router reserves the logging alias for `log_panel` models, so Django's system checks do not validate unrelated project apps such as `auth` or `admin` against MongoDB.
+
 If your logging alias is `default`, the normal migration flow is enough.
 
 ### Notes

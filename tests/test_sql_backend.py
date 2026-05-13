@@ -93,6 +93,25 @@ def test_get_log_table_filters_by_search(panel_factory, backend):
 
 
 @pytest.mark.django_db
+def test_get_log_table_filters_by_module(panel_factory, backend):
+    panel_factory(module="views")
+    panel_factory(module="tasks")
+
+    logs, total = backend.get_log_table(
+        logger_name="myapp",
+        level="",
+        search="",
+        page=1,
+        page_size=10,
+        app_timezone=UTC,
+        module="tasks",
+    )
+
+    assert total == 1
+    assert logs[0]["module"] == "tasks"
+
+
+@pytest.mark.django_db
 def test_get_log_table_paginates_correctly(panel_factory, backend):
     for i in range(5):
         panel_factory(
@@ -116,6 +135,16 @@ def test_get_log_table_empty_level_returns_all_levels(panel_factory, backend):
         logger_name="myapp", level="", search="", page=1, page_size=10, app_timezone=UTC
     )
     assert total == 5
+
+
+@pytest.mark.django_db
+def test_get_modules_returns_sorted_distinct_modules(panel_factory, backend):
+    panel_factory(logger_name="myapp", module="views")
+    panel_factory(logger_name="myapp", module="tasks")
+    panel_factory(logger_name="myapp", module="views")
+    panel_factory(logger_name="other", module="admin")
+
+    assert backend.get_modules(logger_name="myapp") == ["tasks", "views"]
 
 
 @pytest.mark.django_db

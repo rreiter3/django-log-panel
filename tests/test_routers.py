@@ -43,6 +43,12 @@ def test_allow_migrate_false_when_no_alias_configured(router):
     assert router.allow_migrate("default", "log_panel") is False
 
 
-def test_allow_migrate_none_for_other_app_label(router):
+def test_allow_migrate_none_for_other_app_label_on_non_log_database(router):
     assert router.allow_migrate("default", "auth") is None
     assert router.allow_migrate("default", "contenttypes") is None
+
+
+@override_settings(LOG_PANEL={"DATABASE_ALIAS": "logs"})
+def test_allow_migrate_false_for_other_app_label_on_log_database(router):
+    assert router.allow_migrate("logs", "auth") is False
+    assert router.allow_migrate("logs", "contenttypes") is False

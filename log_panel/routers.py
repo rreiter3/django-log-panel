@@ -13,8 +13,9 @@ class LogsRouter:
 
         DATABASE_ROUTERS = ['log_panel.routers.LogsRouter']
 
-    When no ``DATABASE_ALIAS`` is configured, ``allow_migrate`` returns
-    ``False`` for all databases so the ``Log`` table is never created.
+    The configured logging database is reserved for ``log_panel`` models. This
+    keeps Django and backend-specific system checks from treating unrelated
+    project apps as migratable on the logging database.
     """
 
     def db_for_read(self, model: type[Model], **hints: Any) -> str | None:
@@ -38,9 +39,11 @@ class LogsRouter:
         Returns ``False`` when no alias is configured, preventing accidental
         table creation in the default database.
         """
+        alias: str | None = get_database_alias()
         if app_label == "log_panel":
-            alias: str | None = get_database_alias()
             if alias is None:
                 return False
             return db == alias
+        if alias is not None and db == alias:
+            return False
         return None
