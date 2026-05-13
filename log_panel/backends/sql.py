@@ -177,7 +177,7 @@ class OrmBackend(LogsBackend):
         ).prefetch_related("message_chunks")
         return [
             {
-                "_id": str(object=log.pk),
+                "id": str(object=log.pk),
                 "timestamp": to_display_datetime(
                     value=log.timestamp, app_timezone=app_timezone
                 ),
@@ -257,7 +257,7 @@ class OrmBackend(LogsBackend):
 
         logs: list[dict] = [
             {
-                "_id": str(object=log.pk),
+                "id": str(object=log.pk),
                 "timestamp": to_display_datetime(
                     value=log.timestamp, app_timezone=app_timezone
                 ),

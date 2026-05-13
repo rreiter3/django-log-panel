@@ -240,7 +240,7 @@ def test_get_log_table_returns_expected_fields(panel_factory, backend):
     )
     row = logs[0]
     for field in (
-        "_id",
+        "id",
         "timestamp",
         "level",
         "logger_name",
@@ -670,7 +670,7 @@ def test_query_logs_returns_expected_fields(panel_factory, backend):
         app_timezone=UTC,
     )
     for field in (
-        "_id",
+        "id",
         "timestamp",
         "level",
         "logger_name",

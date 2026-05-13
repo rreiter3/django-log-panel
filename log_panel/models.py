@@ -1,9 +1,16 @@
 import uuid
+from typing import TYPE_CHECKING, Protocol
 
 from django.db import models
 from django.db.models.indexes import Index
 
 from log_panel.managers import LogRecordManager
+
+if TYPE_CHECKING:
+    from django.db.models.query import QuerySet
+
+    class MessageChunkManager(Protocol):
+        def order_by(self, *field_names: str) -> QuerySet["LogMessageChunk"]: ...
 
 
 class Log(models.Model):
@@ -21,6 +28,8 @@ class Log(models.Model):
     line_number = models.IntegerField()
 
     objects = LogRecordManager()
+    if TYPE_CHECKING:
+        message_chunks: MessageChunkManager
 
     class Meta:
         db_table = "log_panel_log"

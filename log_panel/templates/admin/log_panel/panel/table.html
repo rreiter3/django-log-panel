@@ -63,7 +63,7 @@
         {{ log.message }}
         {% if log.message_chunked %}
           <div class="log-message-meta">
-            <a href="{% url 'admin:log_panel_log_message' log._id %}">{% trans "Full message" %}</a>
+            <a href="{% url 'admin:log_panel_log_message' log.id %}">{% trans "Full message" %}</a>
             <span>{{ log.message_size }} {% trans "characters" %}</span>
           </div>
         {% endif %}
