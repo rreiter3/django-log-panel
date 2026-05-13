@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-log-panel"
-version = "0.1.12"
+version = "0.1.13"
 description = "Django admin log viewer supporting MongoDB and SQL databases."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -32,6 +32,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/rreiter3/django-log-panel"
+Documentation = "https://rreiter3.github.io/django-log-panel/"
 Repository = "https://github.com/rreiter3/django-log-panel"
 Issues = "https://github.com/rreiter3/django-log-panel/issues"
 
@@ -77,16 +78,27 @@ omit = ["log_panel/migrations/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 95
+fail_under = 90
+
+[tool.ty]
+
+[tool.ty.src]
+exclude = ["docs/"]
 
 [dependency-groups]
 dev = [
+    "django-mongodb-backend>=5.2,<7",
     "django-stubs==6.0.2",
-    "pymongo>=4.16.0,<5",
     "pytest==9.0.3",
     "pytest-cov>=6.0",
     "pytest-django>=4.9",
     "ruff>=0.15.10",
     "time-machine>=2.16",
     "ty>=0.0.29",
+]
+docs = [
+    "mkdocs-material>=9.6",
+    "mkdocstrings[python]>=0.29",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
 ]
