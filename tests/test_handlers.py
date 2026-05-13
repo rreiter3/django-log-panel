@@ -73,6 +73,22 @@ def test_database_handler_emit_maps_fields_correctly(log_record_factory):
 
 
 @pytest.mark.django_db
+@override_settings(USE_TZ=False, TIME_ZONE="Europe/Budapest")
+def test_database_handler_emit_uses_naive_timestamp_when_use_tz_false(
+    log_record_factory,
+):
+    current_time = datetime(2024, 6, 15, 12, 0, tzinfo=UTC)
+    record = set_record_created(log_record_factory(), current_time)
+
+    handler = DatabaseHandler()
+    handler.emit(record)
+
+    panel = Log.objects.get()
+    assert panel.timestamp == datetime(2024, 6, 15, 14, 0)
+    assert panel.timestamp.tzinfo is None
+
+
+@pytest.mark.django_db
 def test_database_handler_emit_stores_raw_message(log_record_factory):
     record = log_record_factory(msg="raw message")
     handler = DatabaseHandler()

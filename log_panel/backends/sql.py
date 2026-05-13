@@ -4,6 +4,7 @@ from typing import Literal
 
 from log_panel import conf
 from log_panel.backends.base import LogsBackend
+from log_panel.datetimes import to_database_datetime, to_display_datetime
 from log_panel.models import Log
 from log_panel.querysets import LogQuerySet
 from log_panel.types import LogLevel, RangeConfig, SlotStatus
@@ -34,8 +35,12 @@ class OrmBackend(LogsBackend):
         timeline bucketing to ``LogQuerySet.timeline_aggregation``, then
         assembles final row dicts with timeline slot labels and statuses.
         """
-        one_hour_ago: datetime = now_utc - timedelta(hours=1)
-        cutoff: datetime = now_utc - range_config.delta
+        one_hour_ago: datetime = to_database_datetime(
+            value=now_utc - timedelta(hours=1), app_timezone=app_timezone
+        )
+        cutoff: datetime = to_database_datetime(
+            value=now_utc - range_config.delta, app_timezone=app_timezone
+        )
 
         cards: LogQuerySet = self.get_queryset().cards_aggregation(
             one_hour_ago=one_hour_ago
@@ -124,6 +129,7 @@ class OrmBackend(LogsBackend):
         search: str,
         timestamp_from: datetime | None,
         timestamp_to: datetime | None,
+        app_timezone: tzinfo | None = None,
     ) -> LogQuerySet:
         """Apply the given filters to a base queryset."""
         qs: LogQuerySet = self.get_queryset()
@@ -134,9 +140,17 @@ class OrmBackend(LogsBackend):
         if search:
             qs = qs.filter(message__icontains=search)
         if timestamp_from:
-            qs = qs.filter(timestamp__gte=timestamp_from)
+            qs = qs.filter(
+                timestamp__gte=to_database_datetime(
+                    value=timestamp_from, app_timezone=app_timezone
+                )
+            )
         if timestamp_to:
-            qs = qs.filter(timestamp__lt=timestamp_to)
+            qs = qs.filter(
+                timestamp__lt=to_database_datetime(
+                    value=timestamp_to, app_timezone=app_timezone
+                )
+            )
         return qs
 
     def query_logs(
@@ -152,7 +166,7 @@ class OrmBackend(LogsBackend):
     ) -> list[dict]:
         """Query individual log entries with optional level and message filters."""
         qs: LogQuerySet = self._apply_log_filters(
-            logger_names, levels, search, timestamp_from, timestamp_to
+            logger_names, levels, search, timestamp_from, timestamp_to, app_timezone
         ).order_by("-timestamp")
         raw_logs: LogQuerySet = (
             qs[offset:] if limit is None else qs[offset : offset + limit]
@@ -160,7 +174,9 @@ class OrmBackend(LogsBackend):
         return [
             {
                 "_id": str(object=log.pk),
-                "timestamp": log.timestamp.astimezone(app_timezone),
+                "timestamp": to_display_datetime(
+                    value=log.timestamp, app_timezone=app_timezone
+                ),
                 "level": log.level,
                 "logger_name": log.logger_name,
                 "message": log.message,
@@ -214,9 +230,17 @@ class OrmBackend(LogsBackend):
         if search:
             qs: LogQuerySet = qs.filter(message__icontains=search)
         if timestamp_from:
-            qs = qs.filter(timestamp__gte=timestamp_from)
+            qs = qs.filter(
+                timestamp__gte=to_database_datetime(
+                    value=timestamp_from, app_timezone=app_timezone
+                )
+            )
         if timestamp_to:
-            qs = qs.filter(timestamp__lt=timestamp_to)
+            qs = qs.filter(
+                timestamp__lt=to_database_datetime(
+                    value=timestamp_to, app_timezone=app_timezone
+                )
+            )
 
         total: int = qs.count()
         skip: int = (page - 1) * page_size
@@ -225,7 +249,9 @@ class OrmBackend(LogsBackend):
         logs: list[dict] = [
             {
                 "_id": str(object=log.pk),
-                "timestamp": log.timestamp.astimezone(app_timezone),
+                "timestamp": to_display_datetime(
+                    value=log.timestamp, app_timezone=app_timezone
+                ),
                 "level": log.level,
                 "logger_name": log.logger_name,
                 "message": log.message,

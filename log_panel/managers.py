@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from django.db import models
 
+from log_panel.datetimes import to_database_datetime
 from log_panel.querysets import LogQuerySet, LogQueryset
 
 if TYPE_CHECKING:
@@ -46,8 +47,8 @@ class LogRecordManager(models.Manager):
         return self.get_queryset().count_threshold_matches(
             logger_name=logger_name,
             levels=levels,
-            window_start=window_start,
-            window_end=window_end,
+            window_start=to_database_datetime(value=window_start),
+            window_end=to_database_datetime(value=window_end),
         )
 
     def create_from_record(
@@ -62,7 +63,7 @@ class LogRecordManager(models.Manager):
     ) -> Log:
         """Persist a single log record."""
         return self.create(
-            timestamp=timestamp,
+            timestamp=to_database_datetime(value=timestamp),
             level=level,
             logger_name=logger_name,
             message=message,

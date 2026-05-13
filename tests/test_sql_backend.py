@@ -292,6 +292,31 @@ def test_get_logger_cards_empty_db_returns_empty_list(backend):
     assert rows == []
 
 
+@override_settings(USE_TZ=False, TIME_ZONE="Europe/Budapest")
+def test_get_logger_cards_uses_naive_database_filter_datetimes(backend):
+    captured = {}
+
+    class QuerySetStub:
+        def cards_aggregation(self, *, one_hour_ago):
+            captured["one_hour_ago"] = one_hour_ago
+            return []
+
+        def timeline_aggregation(self, *, cutoff, range_config, app_timezone):
+            captured["cutoff"] = cutoff
+            return []
+
+    with patch.object(backend, "get_queryset", return_value=QuerySetStub()):
+        rows = backend.get_logger_cards(
+            now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=BUDAPEST
+        )
+
+    assert rows == []
+    assert captured["one_hour_ago"] == datetime(2024, 6, 15, 15, 0)
+    assert captured["cutoff"] == datetime(2024, 6, 14, 16, 0)
+    assert captured["one_hour_ago"].tzinfo is None
+    assert captured["cutoff"].tzinfo is None
+
+
 @pytest.mark.django_db
 @override_settings(LOG_PANEL={"DATABASE_ALIAS": "default", "THRESHOLDS": {"ERROR": 3}})
 def test_slot_stays_ok_when_error_count_below_error_threshold(panel_factory, backend):

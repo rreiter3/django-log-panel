@@ -491,6 +491,16 @@ def test_table_list_filter_parses_timestamps(factory):
     assert f.timestamp_to_str == "2024-06-15T14:00"
 
 
+@override_settings(USE_TZ=False)
+def test_table_list_filter_parses_naive_timestamps_when_use_tz_false(factory):
+    request = factory.get("/", {"timestamp_from": "2024-06-15T10:00"})
+
+    f = TableListFilter(request, app_timezone=_get_tz())
+
+    assert f.timestamp_from is not None
+    assert f.timestamp_from.tzinfo is None
+
+
 def test_table_list_filter_invalid_timestamp_returns_none(factory):
     request = factory.get("/", {"timestamp_from": "not-a-date"})
     f = TableListFilter(request, app_timezone=_get_tz())

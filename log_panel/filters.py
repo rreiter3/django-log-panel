@@ -6,6 +6,7 @@ from typing import Literal
 from django.contrib import messages
 from django.http import HttpRequest
 
+from log_panel.datetimes import to_database_datetime
 from log_panel.types import CardFilter, LogLevel
 
 
@@ -62,14 +63,13 @@ class TableListFilter:
 
     @staticmethod
     def _parse_timestamp(value: str, app_timezone) -> datetime | None:
-        """Parse a ``%Y-%m-%dT%H:%M`` string into a timezone-aware datetime, or None."""
+        """Parse a ``%Y-%m-%dT%H:%M`` string into a database-compatible datetime."""
         if not value:
             return None
         try:
-            from django.utils.timezone import make_aware
-
-            return make_aware(
-                value=datetime.strptime(value, "%Y-%m-%dT%H:%M"), timezone=app_timezone
+            return to_database_datetime(
+                value=datetime.strptime(value, "%Y-%m-%dT%H:%M"),
+                app_timezone=app_timezone,
             )
         except ValueError:
             return None

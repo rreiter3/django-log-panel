@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import QuerySet
 
 from log_panel.conf import get_setting
+from log_panel.datetimes import to_database_datetime
 from log_panel.models import Log
 
 
@@ -37,7 +38,9 @@ class Command(BaseCommand):
         batch_size: int = options["batch_size"]
         dry_run: bool = options["dry_run"]
 
-        cutoff: datetime = datetime.now(tz=UTC) - timedelta(days=retention_days)
+        cutoff: datetime = to_database_datetime(
+            value=datetime.now(tz=UTC) - timedelta(days=retention_days)
+        )
         base_qs: QuerySet[Log] = Log.objects.filter(timestamp__lt=cutoff)
 
         if dry_run:

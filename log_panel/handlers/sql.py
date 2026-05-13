@@ -1,9 +1,10 @@
 import threading
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import partial
 from logging import Formatter, Handler, LogRecord
 
 from log_panel.alerts import maybe_emit_threshold_signal
+from log_panel.datetimes import from_record_timestamp
 
 
 class DatabaseHandler(Handler):
@@ -57,7 +58,7 @@ class DatabaseHandler(Handler):
             from log_panel.models import Log
 
             panel = Log.objects.create_from_record(
-                timestamp=datetime.fromtimestamp(timestamp=record.created, tz=UTC),
+                timestamp=from_record_timestamp(timestamp=record.created),
                 level=record.levelname,
                 logger_name=record.name,
                 message=record.getMessage()
