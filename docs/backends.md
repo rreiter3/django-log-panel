@@ -30,7 +30,7 @@ Use MongoDB when you want append-only logging with flexible document storage.
 
 This backend requires two things:
 
-- the `mongodb` extra so `django-mongodb-backend` is installed
+- the `django-mongodb-backend` package is installed
 - a running, reachable MongoDB instance
 
 ### Minimal config
@@ -50,7 +50,7 @@ DATABASE_ROUTERS = [
 
 LOG_PANEL = {
     "DATABASE_ALIAS": "logs",
-    "TTL_DAYS": 90,
+    "RETENTION_DAYS": 90,
 }
 ```
 
@@ -89,11 +89,13 @@ For a replica set or sharded cluster, include all hosts in `HOST`:
 
 ### Migration
 
-Run the migration on the logging database:
+`LogsRouter` keeps the `Log` model on the configured logging database, but Django still targets `default` unless you tell it otherwise:
 
 ```bash
 python manage.py migrate log_panel --database=logs
 ```
+
+If your logging alias is `default`, the normal migration flow is enough.
 
 ### Notes
 
@@ -150,7 +152,7 @@ DATABASE_ROUTERS = [
 
 LOG_PANEL = {
     "DATABASE_ALIAS": "logs",
-    "TTL_DAYS": 90,
+    "RETENTION_DAYS": 90,
 }
 ```
 
@@ -192,6 +194,38 @@ LOGGING = {
     },
 }
 ```
+
+## Custom backend
+
+To build your own backend, subclass `log_panel.backends.base.LogsBackend` and implement the abstract methods:
+
+```python
+from log_panel.backends.base import LogsBackend
+
+
+class MyBackend(LogsBackend):
+    def get_logger_cards(self, now_utc, range_config, app_timezone):
+        ...
+
+    def query_logs(self, logger_names, levels, search, offset, limit, app_timezone, **kwargs):
+        ...
+
+    def count_logs(self, logger_names, levels, search, **kwargs):
+        ...
+
+    def get_log_table(self, logger_name, level, search, page, page_size, app_timezone, **kwargs):
+        ...
+```
+
+Then point `LOG_PANEL["BACKEND"]` at your class:
+
+```python
+LOG_PANEL = {
+    "BACKEND": "myapp.backends.MyBackend",
+}
+```
+
+The `get_local_now_and_slot_delta` helper on `LogsBackend` is available for timeline slot calculations if your backend needs them.
 
 ## See also
 

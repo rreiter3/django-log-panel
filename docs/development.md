@@ -30,7 +30,7 @@ uv run ty check
 ## Project notes
 
 - `pytest` uses `tests.settings` from `pyproject.toml`.
-- Coverage is configured in `pyproject.toml` with `fail_under = 95`.
+- Coverage is configured in `pyproject.toml` with `fail_under = 90`.
 - Screenshots used in the docs live under `docs/images/`.
 
 ## See also

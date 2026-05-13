@@ -3,7 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/django-log-panel)](https://pypi.org/project/django-log-panel/)
 [![Latest on Django Packages](https://img.shields.io/badge/Django_Packages-django--log--panel-8c3c26.svg)](https://djangopackages.org/packages/p/django-log-panel/)
 
-`django-log-panel` displays your Django logs inside Django admin as a per-logger status dashboard with searchable log entries and optional threshold alerts, without a separate service to run.
+`django-log-panel` displays your Django logs inside Django admin as a per-logger status dashboard with searchable log entries and optional threshold alerts.
 
 <p align="center">
   <a href="images/main.png">
@@ -72,12 +72,12 @@ For MongoDB support, install the optional extra:
 
 ## Choose a backend
 
-| Backend | Use it when | Retention | Extra setup |
-| ------- | ----------- | --------- | ----------- |
-| MongoDB | You want append-only logging with cheap writes and flexible document storage. | Run the `delete_old_logs` management command on a schedule. | Install the `mongodb` extra, add a `DATABASES` entry with `ENGINE` `"django_mongodb_backend"`, and set `DATABASE_ALIAS`. |
-| SQL | You want logs in a Django-managed relational database. | Run the `delete_old_logs` management command on a schedule. | Add `LogsRouter`, point `DATABASE_ALIAS` at the target database, and run the `log_panel` migration on that alias. |
+- **MongoDB** — document storage with cheap writes.
+- **SQL** — logs in a relational database.
+- **Custom** — [write your own backend](backends.md#custom-backend) by subclassing `LogsBackend`.
 
-Both backends use the same `Log` model, `DatabaseHandler`, and ORM queries. The only difference is the `ENGINE` in your `DATABASES` entry.
+Both built-in backends use the same `Log` model, `DatabaseHandler`, and ORM queries. The only difference is the `ENGINE` in your `DATABASES` entry. Retention is managed by running the `delete_old_logs` management command on a schedule.
+
 
 ## Quick start
 
@@ -107,7 +107,7 @@ INSTALLED_APPS = [
 
     LOG_PANEL = {
         "DATABASE_ALIAS": "logs",
-        "TTL_DAYS": 90,
+        "RETENTION_DAYS": 90,
     }
     ```
 
@@ -129,7 +129,7 @@ INSTALLED_APPS = [
 
     LOG_PANEL = {
         "DATABASE_ALIAS": "logs",
-        "TTL_DAYS": 90,
+        "RETENTION_DAYS": 90,
     }
     ```
 
@@ -139,12 +139,18 @@ Then run the migration on the logging database:
 python manage.py migrate log_panel --database=logs
 ```
 
+To delete old logs, run the cleanup command on a schedule:
+
+```bash
+python manage.py delete_old_logs
+```
+
 ### 3. Open Django admin
 
-Go to **Application Logs**, or open:
+Go to **Log Panel**, or open:
 
 ```
-/admin/log_panel/panel/
+/admin/log_panel/log/
 ```
 
 Once configured, any standard Python logger that flows through the selected handler will show up in the panel.

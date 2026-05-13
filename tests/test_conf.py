@@ -30,17 +30,17 @@ def clean_root_logger():
 
 
 def test_get_setting_returns_default_when_not_configured():
-    assert get_setting("TTL_DAYS") == 90
+    assert get_setting("RETENTION_DAYS") == 90
 
 
-@override_settings(LOG_PANEL={"TTL_DAYS": 30})
+@override_settings(LOG_PANEL={"RETENTION_DAYS": 30})
 def test_get_setting_returns_user_value():
-    assert get_setting("TTL_DAYS") == 30
+    assert get_setting("RETENTION_DAYS") == 30
 
 
-@override_settings(LOG_PANEL={"TTL_DAYS": 14})
+@override_settings(LOG_PANEL={"RETENTION_DAYS": 14})
 def test_get_setting_falls_back_for_partial_config():
-    assert get_setting("TTL_DAYS") == 14
+    assert get_setting("RETENTION_DAYS") == 14
     assert get_setting("PAGE_SIZE") == 10
     assert get_setting("TITLE") == "Log Panel"
 

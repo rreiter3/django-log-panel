@@ -94,9 +94,9 @@ def test_deletes_in_batches():
 
 
 @pytest.mark.django_db
-@override_settings(LOG_PANEL={"TTL_DAYS": 5})
+@override_settings(LOG_PANEL={"RETENTION_DAYS": 5})
 @time_machine.travel(FROZEN_NOW, tick=False)
-def test_uses_ttl_days_from_settings(panel_factory):
+def test_uses_retention_days_from_settings(panel_factory):
     panel_factory(timestamp=old(10))
     call_command("delete_old_logs", stdout=StringIO())
     assert Log.objects.count() == 0

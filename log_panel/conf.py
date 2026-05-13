@@ -21,7 +21,7 @@ DEFAULTS: dict[str, Any] = {
     "BACKEND": None,
     # Storage
     "DATABASE_ALIAS": None,
-    "TTL_DAYS": 90,
+    "RETENTION_DAYS": 90,
     "CACHE_TIMEOUT_SECONDS": 30,
     # Auto-attach handler to root logger on startup
     "ATTACH_ROOT_HANDLER": True,

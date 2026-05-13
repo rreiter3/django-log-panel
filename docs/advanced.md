@@ -14,7 +14,7 @@ The admin UI is designed for browsing logger health first and raw entries second
 Admin URL:
 
 ```text
-/admin/log_panel/panel/
+/admin/log_panel/log/
 ```
 
 ## Writing logs
@@ -146,7 +146,7 @@ python manage.py delete_old_logs [--days DAYS] [--batch-size BATCH_SIZE] [--dry-
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--days` | `LOG_PANEL["TTL_DAYS"]` | Override the retention window for this run. |
+| `--days` | `LOG_PANEL["RETENTION_DAYS"]` | Override the retention window for this run. |
 | `--batch-size` | `1000` | Number of rows to delete per batch. Smaller batches reduce lock and I/O spikes. |
 | `--dry-run` | not set | Print how many rows would be deleted without deleting them. |
 

@@ -3,7 +3,7 @@
 [![Latest on Django Packages](https://img.shields.io/badge/Django_Packages-django--log--panel-8c3c26.svg)](https://djangopackages.org/packages/p/django-log-panel/)
 [![Docs](https://img.shields.io/badge/docs-rreiter3.github.io-blue)](https://rreiter3.github.io/django-log-panel/)
 
-`django-log-panel` displays your Django logs inside Django admin as a per-logger status dashboard with searchable log entries and optional threshold alerts, without a separate service to run.
+`django-log-panel` displays your Django logs inside Django admin as a per-logger status dashboard with searchable log entries and optional threshold alerts.
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/rreiter3/django-log-panel/main/docs/images/main.png">

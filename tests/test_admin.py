@@ -55,7 +55,7 @@ def make_backend(rows=None, logs=None, total=0):
 
 @pytest.mark.django_db
 def test_changelist_view_without_logger_name_renders_cards_view(panel_admin, factory):
-    request = factory.get("/admin/log_panel/panel/")
+    request = factory.get("/admin/log_panel/log/")
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
     assert response.context_data["view"] == "cards"
@@ -63,7 +63,7 @@ def test_changelist_view_without_logger_name_renders_cards_view(panel_admin, fac
 
 @pytest.mark.django_db
 def test_changelist_view_with_logger_name_renders_table_view(panel_admin, factory):
-    request = factory.get("/admin/log_panel/panel/", {"logger_name": "myapp"})
+    request = factory.get("/admin/log_panel/log/", {"logger_name": "myapp"})
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
     assert response.context_data["view"] == "table"

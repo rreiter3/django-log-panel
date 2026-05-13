@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `BACKEND` | `None` | Dotted path to a custom backend class. Overrides auto-detection. |
 | `DATABASE_ALIAS` | `None` | Database alias for log storage (SQL or MongoDB). The backend engine is detected from the `DATABASES` entry — set `ENGINE` to `"django_mongodb_backend"` for MongoDB or any Django SQL backend for SQL. |
-| `TTL_DAYS` | `90` | Retention window in days. Used by the `delete_old_logs` cleanup command. |
+| `RETENTION_DAYS` | `90` | Retention window in days. Used by the `delete_old_logs` cleanup command. |
 
 ## Capture and alert settings
 

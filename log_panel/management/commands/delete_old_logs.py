@@ -9,14 +9,16 @@ from log_panel.models import Log
 
 
 class Command(BaseCommand):
-    help = 'Delete log entries older than LOG_PANEL["TTL_DAYS"] (default: 90 days).'
+    help = (
+        'Delete log entries older than LOG_PANEL["RETENTION_DAYS"] (default: 90 days).'
+    )
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument(
             "--days",
             type=int,
             default=None,
-            help="Override TTL_DAYS for this run.",
+            help="Override RETENTION_DAYS for this run.",
         )
         parser.add_argument(
             "--batch-size",
@@ -31,16 +33,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        ttl_days: int = options["days"] or get_setting(key="TTL_DAYS")
+        retention_days: int = options["days"] or get_setting(key="RETENTION_DAYS")
         batch_size: int = options["batch_size"]
         dry_run: bool = options["dry_run"]
 
-        cutoff: datetime = datetime.now(tz=UTC) - timedelta(days=ttl_days)
+        cutoff: datetime = datetime.now(tz=UTC) - timedelta(days=retention_days)
         base_qs: QuerySet[Log] = Log.objects.filter(timestamp__lt=cutoff)
 
         if dry_run:
             self.stdout.write(
-                msg=f"[dry-run] Would delete {base_qs.count()} log entries older than {ttl_days} days."
+                msg=f"[dry-run] Would delete {base_qs.count()} log entries older than {retention_days} days."
             )
             return
 
@@ -55,6 +57,6 @@ class Command(BaseCommand):
 
         self.stdout.write(
             msg=self.style.SUCCESS(
-                f"Deleted {deleted_total} log entries older than {ttl_days} days."
+                f"Deleted {deleted_total} log entries older than {retention_days} days."
             )
         )
