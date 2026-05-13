@@ -19,6 +19,14 @@
     {% endfor %}
   </select>
 
+  <label for="id_module">{% trans "Module" %}:</label>
+  <select name="module" id="id_module">
+    <option value="">{% trans "All" %}</option>
+    {% for mod in modules %}
+      <option value="{{ mod }}" {% if module_filter == mod %}selected{% endif %}>{{ mod }}</option>
+    {% endfor %}
+  </select>
+
   <label for="id_search">{% trans "Message" %}:</label>
   <input type="text" name="search" id="id_search" value="{{ search }}" placeholder="{% trans 'Search message...' %}">
 
@@ -61,10 +69,10 @@
 
 <div class="log-pagination">
   {% if has_prev %}
-    <a href="?logger_name={{ logger_name }}&page={{ page|add:'-1' }}&level={{ level_filter }}&search={{ search }}&timestamp_from={{ timestamp_from }}&timestamp_to={{ timestamp_to }}">&laquo; {% trans "Previous" %}</a>
+    <a href="?logger_name={{ logger_name }}&page={{ page|add:'-1' }}&level={{ level_filter }}&module={{ module_filter }}&search={{ search }}&timestamp_from={{ timestamp_from }}&timestamp_to={{ timestamp_to }}">&laquo; {% trans "Previous" %}</a>
   {% endif %}
   {% if has_next %}
-    <a href="?logger_name={{ logger_name }}&page={{ page|add:'1' }}&level={{ level_filter }}&search={{ search }}&timestamp_from={{ timestamp_from }}&timestamp_to={{ timestamp_to %}">{% trans "Next" %} &raquo;</a>
+    <a href="?logger_name={{ logger_name }}&page={{ page|add:'1' }}&level={{ level_filter }}&module={{ module_filter }}&search={{ search }}&timestamp_from={{ timestamp_from }}&timestamp_to={{ timestamp_to }}">{% trans "Next" %} &raquo;</a>
   {% endif %}
 </div>
 {% endblock %}

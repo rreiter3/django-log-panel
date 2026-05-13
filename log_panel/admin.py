@@ -133,6 +133,7 @@ class LogAdmin(admin.ModelAdmin):
     ) -> dict:
         """Build context for the table view."""
         logs: list[dict] = []
+        modules: list[str] = []
         total: int = 0
         page_size: int = conf.get_setting(key="PAGE_SIZE")
 
@@ -141,6 +142,7 @@ class LogAdmin(admin.ModelAdmin):
 
         if backend:
             try:
+                modules = backend.get_modules(logger_name=logger_name)
                 logs, total = backend.get_log_table(
                     logger_name=logger_name,
                     level=table_filter.level,
@@ -150,6 +152,7 @@ class LogAdmin(admin.ModelAdmin):
                     app_timezone=app_timezone,
                     timestamp_from=table_filter.timestamp_from,
                     timestamp_to=table_filter.timestamp_to,
+                    module=table_filter.module,
                 )
             except Exception as exc:
                 error = str(object=exc)
@@ -169,6 +172,8 @@ class LogAdmin(admin.ModelAdmin):
             "has_next": table_filter.page < total_pages,
             "logger_name": logger_name,
             "level_filter": table_filter.level,
+            "module_filter": table_filter.module,
+            "modules": modules,
             "search": table_filter.search,
             "timestamp_from": table_filter.timestamp_from_str,
             "timestamp_to": table_filter.timestamp_to_str,

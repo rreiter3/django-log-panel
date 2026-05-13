@@ -41,6 +41,14 @@ def test_database_handler_emit_creates_panel_record(log_record_factory):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("logger_name", ["pymongo", "pymongo.topology"])
+def test_database_handler_ignores_internal_loggers(log_record_factory, logger_name):
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory(name=logger_name))
+    assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_database_handler_emit_maps_fields_correctly(log_record_factory):
     record = log_record_factory(
         name="billing",

@@ -18,6 +18,9 @@
 | `LOG_LEVEL` | `"DEBUG"` | Minimum level for the auto-attached handler and root logger. Only used when `ATTACH_ROOT_HANDLER` is `True`. |
 | `THRESHOLDS` | `{"WARNING": 1, "ERROR": 1, "CRITICAL": 1}` | Per-level alert thresholds for the `log_threshold_reached` signal. Omit a level to keep its default. Set a level to `None` to disable it. |
 
+!!! note "Ignored loggers"
+    `DatabaseHandler` silently skips records from `pymongo.*` loggers. pymongo's background monitor thread emits DEBUG logs during connection setup, which would cause recursive writes back to MongoDB.
+
 ## Admin UI and access settings
 
 | Setting | Default | Description |

@@ -184,6 +184,15 @@ class OrmBackend(LogsBackend):
             logger_names, levels, search, timestamp_from, timestamp_to
         ).count()
 
+    def get_modules(self, logger_name: str) -> list[str]:
+        """Return a sorted list of distinct module names for the given logger."""
+        return sorted(
+            self.get_queryset()
+            .filter(logger_name=logger_name)
+            .values_list("module", flat=True)
+            .distinct()
+        )
+
     def get_log_table(
         self,
         logger_name: str,
@@ -194,11 +203,14 @@ class OrmBackend(LogsBackend):
         app_timezone: tzinfo,
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
+        module: str = "",
     ) -> tuple[list[dict], int]:
         """Query individual log entries with optional level and message filters."""
         qs: LogQuerySet = self.get_queryset().filter(logger_name=logger_name)
         if level:
             qs: LogQuerySet = qs.filter(level=level)
+        if module:
+            qs: LogQuerySet = qs.filter(module=module)
         if search:
             qs: LogQuerySet = qs.filter(message__icontains=search)
         if timestamp_from:

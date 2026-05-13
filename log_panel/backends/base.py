@@ -63,6 +63,10 @@ class LogsBackend(ABC):
         """Return the total number of log entries matching the given filters."""
 
     @abstractmethod
+    def get_modules(self, logger_name: str) -> list[str]:
+        """Return a sorted list of distinct module names for the given logger."""
+
+    @abstractmethod
     def get_log_table(
         self,
         logger_name: str,
@@ -73,6 +77,7 @@ class LogsBackend(ABC):
         app_timezone: tzinfo,
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
+        module: str = "",
     ) -> tuple[list[dict], int]:
         """
         Return (log_entries, total_count) for the table view.

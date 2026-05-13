@@ -15,6 +15,11 @@ class DatabaseHandler(Handler):
 
     _local = threading.local()
 
+    # Loggers whose records must never be written back to the database.
+    # pymongo emits DEBUG logs from a background monitor thread during
+    # connection setup, bypassing the thread-local recursion guard.
+    _IGNORED_LOGGER_PREFIXES: tuple[str, ...] = ("pymongo",)
+
     @staticmethod
     def count_matching_records(
         logger_name: str,
@@ -43,9 +48,11 @@ class DatabaseHandler(Handler):
         """
         if getattr(self._local, "emitting", False):
             return
+        if record.name.startswith(self._IGNORED_LOGGER_PREFIXES):
+            return
         self._local.emitting = True
         try:
-            from django.db import InternalError, ProgrammingError
+            from django.db import DatabaseError, InternalError, ProgrammingError
 
             from log_panel.models import Log
 
@@ -76,7 +83,7 @@ class DatabaseHandler(Handler):
                     self.count_matching_records, panel.logger_name
                 ),
             )
-        except (ProgrammingError, InternalError):
+        except (ProgrammingError, InternalError, DatabaseError):
             pass
         except Exception:
             self.handleError(record)

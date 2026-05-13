@@ -43,6 +43,7 @@ class TableListFilter:
 
     def __init__(self, request: HttpRequest, app_timezone) -> None:
         self.level: LogLevel | str = request.GET.get(key="level", default="")
+        self.module: str = request.GET.get(key="module", default="")
         self.search: str = request.GET.get(key="search", default="")
         self.timestamp_from_str: str = request.GET.get(key="timestamp_from", default="")
         self.timestamp_to_str: str = request.GET.get(key="timestamp_to", default="")
