@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.db.models.indexes import Index
 
@@ -7,6 +9,7 @@ from log_panel.managers import LogRecordManager
 class Log(models.Model):
     """Represent a log record."""
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     timestamp = models.DateTimeField(db_index=True)
     level = models.CharField(max_length=10)
     logger_name = models.CharField(max_length=200, db_index=True)
