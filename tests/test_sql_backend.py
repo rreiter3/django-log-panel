@@ -1,10 +1,11 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 from django.test import override_settings
 
-from log_panel.backends.sql import SqlBackend
+from log_panel.backends.sql import OrmBackend
 from log_panel.types import RangeConfig, RangeUnit
 
 BUDAPEST = ZoneInfo("Europe/Budapest")
@@ -16,11 +17,18 @@ HOUR_RANGE = RangeConfig(
     format="%H:00",
     label="Last 24 hours",
 )
+DAY_RANGE = RangeConfig(
+    delta=timedelta(days=7),
+    unit=RangeUnit.DAY,
+    slots=7,
+    format="%m-%d",
+    label="Last 7 days",
+)
 
 
 @pytest.fixture
 def backend():
-    return SqlBackend()
+    return OrmBackend()
 
 
 @pytest.mark.django_db
@@ -616,3 +624,117 @@ def test_count_logs_combines_filters(panel_factory, backend):
         )
         == 1
     )
+
+
+@pytest.mark.django_db
+def test_query_logs_filters_by_timestamp_from(panel_factory, backend):
+    panel_factory(timestamp=datetime(2024, 6, 15, 10, 0, tzinfo=UTC))
+    panel_factory(timestamp=datetime(2024, 6, 15, 12, 0, tzinfo=UTC))
+
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+        timestamp_from=datetime(2024, 6, 15, 11, 0, tzinfo=UTC),
+    )
+    assert len(logs) == 1
+    assert logs[0]["timestamp"].hour == 12
+
+
+@pytest.mark.django_db
+def test_query_logs_filters_by_timestamp_to(panel_factory, backend):
+    panel_factory(timestamp=datetime(2024, 6, 15, 10, 0, tzinfo=UTC))
+    panel_factory(timestamp=datetime(2024, 6, 15, 12, 0, tzinfo=UTC))
+
+    logs = backend.query_logs(
+        logger_names=None,
+        levels=None,
+        search="",
+        offset=0,
+        limit=None,
+        app_timezone=UTC,
+        timestamp_to=datetime(2024, 6, 15, 11, 0, tzinfo=UTC),
+    )
+    assert len(logs) == 1
+    assert logs[0]["timestamp"].hour == 10
+
+
+@pytest.mark.django_db
+def test_count_logs_filters_by_timestamp_from(panel_factory, backend):
+    panel_factory(timestamp=datetime(2024, 6, 15, 10, 0, tzinfo=UTC))
+    panel_factory(timestamp=datetime(2024, 6, 15, 12, 0, tzinfo=UTC))
+
+    assert (
+        backend.count_logs(
+            logger_names=None,
+            levels=None,
+            search="",
+            timestamp_from=datetime(2024, 6, 15, 11, 0, tzinfo=UTC),
+        )
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_count_logs_filters_by_timestamp_to(panel_factory, backend):
+    panel_factory(timestamp=datetime(2024, 6, 15, 10, 0, tzinfo=UTC))
+    panel_factory(timestamp=datetime(2024, 6, 15, 12, 0, tzinfo=UTC))
+
+    assert (
+        backend.count_logs(
+            logger_names=None,
+            levels=None,
+            search="",
+            timestamp_to=datetime(2024, 6, 15, 11, 0, tzinfo=UTC),
+        )
+        == 1
+    )
+
+
+@pytest.mark.django_db
+def test_get_logger_cards_handles_naive_bucket(panel_factory, backend):
+    panel_factory(
+        level="ERROR",
+        timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
+    )
+
+    original_timeline_agg = type(backend.get_queryset()).timeline_aggregation
+
+    def _strip_tz(self, **kwargs):
+        qs = original_timeline_agg(self, **kwargs)
+        results = list(qs)
+        for entry in results:
+            entry["bucket"] = entry["bucket"].replace(tzinfo=None)
+        return results
+
+    with patch.object(
+        type(backend.get_queryset()),
+        "timeline_aggregation",
+        _strip_tz,
+    ):
+        rows = backend.get_logger_cards(
+            now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
+        )
+
+    assert len(rows) == 1
+    last_slot = rows[0]["timeline"][-1]
+    assert last_slot["status"] == "error"
+
+
+@pytest.mark.django_db
+def test_get_logger_cards_with_day_range_unit(panel_factory, backend):
+    panel_factory(
+        level="ERROR",
+        timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
+    )
+
+    rows = backend.get_logger_cards(
+        now_utc=NOW_UTC, range_config=DAY_RANGE, app_timezone=UTC
+    )
+    assert len(rows) == 1
+    assert len(rows[0]["timeline"]) == 7
+    last_slot = rows[0]["timeline"][-1]
+    assert last_slot["status"] == "error"

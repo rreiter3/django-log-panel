@@ -11,18 +11,19 @@ from django.utils import timezone as django_timezone
 from log_panel import conf
 from log_panel.backends.base import LogsBackend
 from log_panel.filters import CardListFilter, TableListFilter
-from log_panel.models import Panel
+from log_panel.models import Log
 from log_panel.types import RangeConfig
 
 
-@admin.register(Panel)
-class PanelAdmin(admin.ModelAdmin):
-    """Read-only admin interface for browsing application logs.
+@admin.register(Log)
+class LogAdmin(admin.ModelAdmin):
+    """
+    Read-only admin interface for browsing application logs.
 
     Provides two views:
-    - **Cards view** (default): one card per logger with error/warning badges and a color-coded timeline strip across
+    - Cards view (default): one card per logger with error/warning badges and a color-coded timeline strip across
     the selected time range.
-    - **Table view**: paginated log entries for a single logger, filterable by level and message content.
+    - Table view: paginated log entries for a single logger, filterable by level and message content.
     """
 
     def has_view_permission(self, request: HttpRequest, obj: Any = None) -> bool:
@@ -50,14 +51,16 @@ class PanelAdmin(admin.ModelAdmin):
         """Route to the cards or table view depending on the ``logger_name`` query param."""
         backend: LogsBackend | None = conf.get_backend()
         error: str | None = None
-        logger_name: str = request.GET.get("logger_name", "")
+        logger_name: str = request.GET.get(key="logger_name", default="")
 
         if logger_name:
-            context = self._log_table_context(request, backend, logger_name, error)
-            template = "admin/log_panel/panel/table.html"
+            context: dict = self._log_table_context(
+                request, backend, logger_name, error
+            )
+            template: str = "admin/log_panel/panel/table.html"
         else:
-            context = self._logger_cards_context(request, backend, error)
-            template = "admin/log_panel/panel/cards.html"
+            context: dict = self._logger_cards_context(request, backend, error)
+            template: str = "admin/log_panel/panel/cards.html"
 
         return TemplateResponse(request, template, context)
 

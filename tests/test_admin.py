@@ -9,15 +9,15 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone as django_timezone
 
 from log_panel import conf
-from log_panel.admin import PanelAdmin
+from log_panel.admin import LogAdmin
 from log_panel.filters import CardListFilter, TableListFilter
-from log_panel.models import Panel
+from log_panel.models import Log
 from log_panel.types import CardFilter, RangeConfig, RangeUnit
 
 
 @pytest.fixture
 def panel_admin():
-    admin = PanelAdmin(Panel, AdminSite())
+    admin = LogAdmin(Log, AdminSite())
     admin.admin_site.each_context = lambda req: {}  # ty: ignore[invalid-assignment]
     return admin
 
@@ -55,7 +55,7 @@ def make_backend(rows=None, logs=None, total=0):
 
 @pytest.mark.django_db
 def test_changelist_view_without_logger_name_renders_cards_view(panel_admin, factory):
-    request = factory.get("/admin/log_panel/panel/")
+    request = factory.get("/admin/log_panel/log/")
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
     assert response.context_data["view"] == "cards"
@@ -63,7 +63,7 @@ def test_changelist_view_without_logger_name_renders_cards_view(panel_admin, fac
 
 @pytest.mark.django_db
 def test_changelist_view_with_logger_name_renders_table_view(panel_admin, factory):
-    request = factory.get("/admin/log_panel/panel/", {"logger_name": "myapp"})
+    request = factory.get("/admin/log_panel/log/", {"logger_name": "myapp"})
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
     assert response.context_data["view"] == "table"

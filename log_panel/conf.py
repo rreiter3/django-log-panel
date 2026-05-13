@@ -3,7 +3,6 @@ from types import ModuleType
 from typing import Any
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 
 from log_panel.types import RangeConfig, RangeUnit
 
@@ -20,16 +19,10 @@ def reset_backend_cache() -> None:
 DEFAULTS: dict[str, Any] = {
     # Backend — None means auto-detect
     "BACKEND": None,
-    # MongoDB-specific
-    "CONNECTION_STRING": None,
-    "DB_NAME": "log_panel",
-    "COLLECTION": "logs",
-    "TTL_DAYS": 90,
-    "SERVER_SELECTION_TIMEOUT_MS": 2000,
-    "ALLOW_DISK_USE": False,
-    "CACHE_TIMEOUT_SECONDS": 30,
-    # SQL-specific
+    # Storage
     "DATABASE_ALIAS": None,
+    "RETENTION_DAYS": 90,
+    "CACHE_TIMEOUT_SECONDS": 30,
     # Auto-attach handler to root logger on startup
     "ATTACH_ROOT_HANDLER": True,
     "LOG_LEVEL": "DEBUG",
@@ -107,48 +100,17 @@ def get_database_alias() -> str | None:
     return get_setting(key="DATABASE_ALIAS")
 
 
-def _build_mongodb_backend(connection_string: str | None = None):
-    """Validate CONNECTION_STRING and return a MongoDBBackend instance.
-
-    Args:
-        connection_string: Pre-validated connection URI. When *None* the value
-            is read (and validated) from ``LOG_PANEL['CONNECTION_STRING']``.
-
-    Raises:
-        ImproperlyConfigured: If the connection string is missing or empty.
-    """
-    if connection_string is None:
-        raw: str | None = get_setting(key="CONNECTION_STRING")
-        connection_string = raw.strip() if isinstance(raw, str) else raw
-
-    if not connection_string:
-        raise ImproperlyConfigured(
-            'LOG_PANEL["CONNECTION_STRING"] must be a valid MongoDB connection URI '
-            "when using the MongoDB backend."
-        )
-
-    from log_panel.backends.mongodb import MongoDBBackend
-
-    return MongoDBBackend(
-        connection_string=connection_string,
-        db_name=get_setting(key="DB_NAME"),
-        collection=get_setting(key="COLLECTION"),
-        server_selection_timeout_ms=get_setting(key="SERVER_SELECTION_TIMEOUT_MS"),
-        allow_disk_use=get_setting(key="ALLOW_DISK_USE"),
-    )
-
-
 def get_backend():
-    """Instantiate and return the configured backend, or None if not configured.
+    """
+    Instantiate and return the configured backend, or None if not configured.
 
     The result is cached for the lifetime of the process so that the underlying
     connection pool is reused across requests.
 
     Resolution order:
     1. LOG_PANEL['BACKEND'] dotted class path (explicit override).
-    2. SqlBackend if a SQL logging alias is found.
-    3. MongoDBBackend if LOG_PANEL['CONNECTION_STRING'] is set.
-    4. None — admin will show an unconfigured state.
+    2. OrmBackend if LOG_PANEL['DATABASE_ALIAS'] is set.
+    3. None — admin will show an unconfigured state.
 
     Returns:
         A LogsBackend instance, or None.
@@ -167,35 +129,14 @@ def get_backend():
         module: ModuleType = import_module(name=module_path)
         cls: Any = getattr(module, class_name)
 
-        from log_panel.backends.mongodb import MongoDBBackend
-
-        if issubclass(cls, MongoDBBackend):
-            _backend_cache = _build_mongodb_backend()
-            return _backend_cache
-
         backend: LogsBackend = cls()
         _backend_cache = backend
         return _backend_cache
 
     if get_database_alias():
-        from log_panel.backends.sql import SqlBackend
+        from log_panel.backends.sql import OrmBackend
 
-        _backend_cache = SqlBackend()
-        return _backend_cache
-
-    user_config: dict[str, Any] = get_user_config()
-    conn_str: str | None = get_setting(key="CONNECTION_STRING")
-    conn_str_stripped: str | None = (
-        conn_str.strip() if isinstance(conn_str, str) else conn_str
-    )
-
-    if "CONNECTION_STRING" in user_config and not conn_str_stripped:
-        from django.core.exceptions import ImproperlyConfigured
-
-        raise ImproperlyConfigured('LOG_PANEL["CONNECTION_STRING"] is set but empty.')
-
-    if conn_str_stripped:
-        _backend_cache = _build_mongodb_backend(conn_str_stripped)
+        _backend_cache = OrmBackend()
         return _backend_cache
 
     _backend_cache = None
@@ -203,7 +144,8 @@ def get_backend():
 
 
 def get_level_colors() -> dict[str, str]:
-    """Return the level color map used for both CSS generation and the filter dropdown.
+    """
+    Return the level color map used for both CSS generation and the filter dropdown.
 
     Merges user-configured ``LOG_PANEL['LEVEL_COLORS']`` with defaults, so only
     overridden or added levels need to be specified.
@@ -214,7 +156,8 @@ def get_level_colors() -> dict[str, str]:
 
 
 def get_permission_callback():
-    """Return the configured permission callable, or None.
+    """
+    Return the configured permission callable, or None.
 
     The setting must be a dotted path to a callable ``(request: HttpRequest) -> bool``.
     When not configured, the panel falls back to allowing any active staff user.

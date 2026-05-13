@@ -1,15 +1,11 @@
 from django.db import models
+from django.db.models.indexes import Index
 
-from log_panel.managers import PanelManager
+from log_panel.managers import LogRecordManager
 
 
-class Panel(models.Model):
-    """Structured log record stored in a SQL database.
-
-    Used by the SQL backend and ``DatabaseHandler``. When using the MongoDB
-    backend this model exists only for the admin registration; no SQL table
-    is created (``LogsRouter.allow_migrate`` returns ``False``).
-    """
+class Log(models.Model):
+    """Represent a log record."""
 
     timestamp = models.DateTimeField(db_index=True)
     level = models.CharField(max_length=10)
@@ -19,8 +15,19 @@ class Panel(models.Model):
     pathname = models.CharField(max_length=500)
     line_number = models.IntegerField()
 
-    objects = PanelManager()
+    objects = LogRecordManager()
 
     class Meta:
-        verbose_name = "Panel"
-        verbose_name_plural = "Panels"
+        db_table = "log_panel_log"
+        verbose_name = "Log"
+        verbose_name_plural = "Logs"
+        indexes: list[Index] = [
+            models.Index(
+                fields=("timestamp", "logger_name", "level"),
+                name="timestamp_logger_level",
+            ),
+            models.Index(
+                fields=("logger_name", "-timestamp"),
+                name="logger_name_timestamp",
+            ),
+        ]

@@ -16,6 +16,8 @@ _dispatch_local = threading.local()
 
 @dataclass(frozen=True, slots=True)
 class ThresholdConfig:
+    """Configuration for a log level threshold."""
+
     level: LogLevel
     threshold: int
 

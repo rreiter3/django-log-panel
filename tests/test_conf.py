@@ -5,7 +5,7 @@ import pytest
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
-from log_panel.backends.sql import SqlBackend
+from log_panel.backends.sql import OrmBackend
 from log_panel.conf import (
     get_backend,
     get_database_alias,
@@ -15,7 +15,7 @@ from log_panel.conf import (
     get_setting,
     get_thresholds,
 )
-from log_panel.handlers import DatabaseHandler, MongoDBHandler
+from log_panel.handlers import DatabaseHandler
 from log_panel.types import RangeConfig
 
 
@@ -25,22 +25,22 @@ def clean_root_logger():
     yield
     root = logging.getLogger()
     for h in list(root.handlers):
-        if isinstance(h, (MongoDBHandler, DatabaseHandler)):
+        if isinstance(h, DatabaseHandler):
             root.removeHandler(h)
 
 
 def test_get_setting_returns_default_when_not_configured():
-    assert get_setting("TTL_DAYS") == 90
+    assert get_setting("RETENTION_DAYS") == 90
 
 
-@override_settings(LOG_PANEL={"TTL_DAYS": 30})
+@override_settings(LOG_PANEL={"RETENTION_DAYS": 30})
 def test_get_setting_returns_user_value():
-    assert get_setting("TTL_DAYS") == 30
+    assert get_setting("RETENTION_DAYS") == 30
 
 
-@override_settings(LOG_PANEL={"TTL_DAYS": 14})
+@override_settings(LOG_PANEL={"RETENTION_DAYS": 14})
 def test_get_setting_falls_back_for_partial_config():
-    assert get_setting("TTL_DAYS") == 14
+    assert get_setting("RETENTION_DAYS") == 14
     assert get_setting("PAGE_SIZE") == 10
     assert get_setting("TITLE") == "Log Panel"
 
@@ -92,24 +92,31 @@ def test_get_backend_returns_none_when_nothing_configured():
 @override_settings(LOG_PANEL={"DATABASE_ALIAS": "default"})
 def test_get_backend_returns_sql_backend_when_alias_configured():
     backend = get_backend()
-    assert isinstance(backend, SqlBackend)
+    assert isinstance(backend, OrmBackend)
 
 
-@override_settings(LOG_PANEL={"BACKEND": "log_panel.backends.sql.SqlBackend"})
+@override_settings(LOG_PANEL={"BACKEND": "log_panel.backends.sql.OrmBackend"})
 def test_get_backend_returns_explicit_backend_when_backend_key_set():
     backend = get_backend()
-    assert isinstance(backend, SqlBackend)
+    assert isinstance(backend, OrmBackend)
+
+
+@override_settings(LOG_PANEL={"DATABASE_ALIAS": "default"})
+def test_get_backend_returns_cached_instance_on_second_call():
+    first = get_backend()
+    second = get_backend()
+    assert first is second
 
 
 @override_settings(
     LOG_PANEL={
-        "BACKEND": "log_panel.backends.sql.SqlBackend",
+        "BACKEND": "log_panel.backends.sql.OrmBackend",
         "DATABASE_ALIAS": "default",
     }
 )
 def test_get_backend_explicit_takes_priority_over_alias():
     backend = get_backend()
-    assert isinstance(backend, SqlBackend)
+    assert isinstance(backend, OrmBackend)
 
 
 @override_settings(
@@ -223,22 +230,6 @@ def test_log_level_default_is_debug():
 
 @override_settings(
     LOG_PANEL={
-        "CONNECTION_STRING": "mongodb://localhost:27017",
-    },
-)
-def test_ready_attaches_mongodb_handler_to_root_logger(clean_root_logger):
-    import log_panel
-    from log_panel.apps import LogPanelConfig
-
-    config = LogPanelConfig("log_panel", log_panel)
-    config.ready()
-
-    root = logging.getLogger()
-    assert any(isinstance(h, MongoDBHandler) for h in root.handlers)
-
-
-@override_settings(
-    LOG_PANEL={
         "DATABASE_ALIAS": "logs",
     },
     DATABASE_ROUTERS=["log_panel.routers.LogsRouter"],
@@ -256,9 +247,10 @@ def test_ready_attaches_database_handler_to_root_logger(clean_root_logger):
 
 @override_settings(
     LOG_PANEL={
-        "CONNECTION_STRING": "mongodb://localhost:27017",
+        "DATABASE_ALIAS": "logs",
         "ATTACH_ROOT_HANDLER": False,
     },
+    DATABASE_ROUTERS=["log_panel.routers.LogsRouter"],
 )
 def test_ready_skips_attach_when_disabled(clean_root_logger):
     import log_panel
@@ -268,20 +260,21 @@ def test_ready_skips_attach_when_disabled(clean_root_logger):
     config.ready()
 
     root = logging.getLogger()
-    assert not any(isinstance(h, MongoDBHandler) for h in root.handlers)
+    assert not any(isinstance(h, DatabaseHandler) for h in root.handlers)
 
 
 @override_settings(
     LOG_PANEL={
-        "CONNECTION_STRING": "mongodb://localhost:27017",
+        "DATABASE_ALIAS": "logs",
     },
+    DATABASE_ROUTERS=["log_panel.routers.LogsRouter"],
 )
 def test_ready_warns_and_skips_when_handler_already_on_root(clean_root_logger):
     import log_panel
     from log_panel.apps import LogPanelConfig
 
     root = logging.getLogger()
-    existing = MongoDBHandler()
+    existing = DatabaseHandler()
     root.addHandler(existing)
 
     config = LogPanelConfig("log_panel", log_panel)
@@ -290,15 +283,16 @@ def test_ready_warns_and_skips_when_handler_already_on_root(clean_root_logger):
         config.ready()
 
     assert any("ATTACH_ROOT_HANDLER" in str(w.message) for w in caught)
-    mongo_handlers = [h for h in root.handlers if isinstance(h, MongoDBHandler)]
-    assert len(mongo_handlers) == 1
+    db_handlers = [h for h in root.handlers if isinstance(h, DatabaseHandler)]
+    assert len(db_handlers) == 1
 
 
 @override_settings(
     LOG_PANEL={
-        "CONNECTION_STRING": "mongodb://localhost:27017",
+        "DATABASE_ALIAS": "logs",
         "LOG_LEVEL": "WARNING",
     },
+    DATABASE_ROUTERS=["log_panel.routers.LogsRouter"],
 )
 def test_ready_respects_log_level_setting(clean_root_logger):
     import log_panel
@@ -308,25 +302,8 @@ def test_ready_respects_log_level_setting(clean_root_logger):
     config.ready()
 
     root = logging.getLogger()
-    handler = next(h for h in root.handlers if isinstance(h, MongoDBHandler))
+    handler = next(h for h in root.handlers if isinstance(h, DatabaseHandler))
     assert handler.level == logging.WARNING
-
-
-@override_settings(
-    LOG_PANEL={
-        "CONNECTION_STRING": "mongodb://localhost:27017",
-    },
-)
-def test_ready_suppresses_pymongo_logger_for_mongodb(clean_root_logger):
-    import log_panel
-    from log_panel.apps import LogPanelConfig
-
-    config = LogPanelConfig("log_panel", log_panel)
-    config.ready()
-
-    pymongo_logger = logging.getLogger("pymongo")
-    assert pymongo_logger.level == logging.WARNING
-    assert pymongo_logger.propagate is False
 
 
 @override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
@@ -334,38 +311,3 @@ def test_get_level_colors_custom_level_preserves_defaults():
     colors = get_level_colors()
     assert colors["MY_AUDIT"] == "#0055aa"
     assert colors["ERROR"] == "#c47900"
-
-
-@override_settings(LOG_PANEL={"CONNECTION_STRING": ""})
-def test_get_backend_raises_when_connection_string_is_empty():
-    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
-        get_backend()
-
-
-@override_settings(LOG_PANEL={"CONNECTION_STRING": "   "})
-def test_get_backend_raises_when_connection_string_is_whitespace():
-    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
-        get_backend()
-
-
-@override_settings(LOG_PANEL={"CONNECTION_STRING": None})
-def test_get_backend_raises_when_connection_string_is_explicit_none():
-    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
-        get_backend()
-
-
-@override_settings(LOG_PANEL={"BACKEND": "log_panel.backends.mongodb.MongoDBBackend"})
-def test_get_backend_raises_when_explicit_mongodb_backend_without_connection_string():
-    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
-        get_backend()
-
-
-@override_settings(
-    LOG_PANEL={
-        "BACKEND": "log_panel.backends.mongodb.MongoDBBackend",
-        "CONNECTION_STRING": "",
-    }
-)
-def test_get_backend_raises_when_explicit_mongodb_backend_with_empty_connection_string():
-    with pytest.raises(ImproperlyConfigured, match="CONNECTION_STRING"):
-        get_backend()

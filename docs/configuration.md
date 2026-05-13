@@ -7,13 +7,8 @@
 | Setting | Default | Description |
 | --- | --- | --- |
 | `BACKEND` | `None` | Dotted path to a custom backend class. Overrides auto-detection. |
-| `CONNECTION_STRING` | `None` | MongoDB connection string. |
-| `DB_NAME` | `"log_panel"` | MongoDB database name. |
-| `COLLECTION` | `"logs"` | MongoDB collection name. |
-| `DATABASE_ALIAS` | `None` | SQL database alias for log storage. |
-| `TTL_DAYS` | `90` | Retention window in days. Used by MongoDB TTL indexes and by the SQL cleanup command. |
-| `SERVER_SELECTION_TIMEOUT_MS` | `2000` | MongoDB server selection timeout in milliseconds for both the backend and handler. |
-| `ALLOW_DISK_USE` | `False` | Pass `allowDiskUse=True` to MongoDB aggregation pipelines. Useful for very large collections and long reporting ranges. |
+| `DATABASE_ALIAS` | `None` | Database alias for log storage (SQL or MongoDB). The backend engine is detected from the `DATABASES` entry — set `ENGINE` to `"django_mongodb_backend"` for MongoDB or any Django SQL backend for SQL. |
+| `RETENTION_DAYS` | `90` | Retention window in days. Used by the `delete_old_logs` cleanup command. |
 
 ## Capture and alert settings
 
