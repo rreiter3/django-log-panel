@@ -81,6 +81,8 @@ skip_covered = false
 fail_under = 90
 
 [tool.ty]
+
+[tool.ty.src]
 exclude = ["docs/"]
 
 [dependency-groups]
