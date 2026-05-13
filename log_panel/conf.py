@@ -27,7 +27,11 @@ DEFAULTS: dict[str, Any] = {
     "CACHE_TIMEOUT_SECONDS": 30,
     # Auto-attach handler to root logger on startup
     "ATTACH_ROOT_HANDLER": True,
-    "LOG_LEVEL": "DEBUG",
+    "LOG_LEVEL": "INFO",
+    # Loggers whose records must never be written back to the log storage.
+    "IGNORED_LOGGER_PREFIXES": ("pymongo",),
+    "IGNORED_LOGGER_NAMES": (),
+    "IGNORED_MESSAGE_SUBSTRINGS": (),
     # Alert thresholds per log level — set to None to disable a level
     "THRESHOLDS": {
         "WARNING": 1,
@@ -89,6 +93,25 @@ def get_thresholds() -> dict[str, int | None]:
     user_config: dict[str, Any] = get_user_config()
     user_thresholds: dict[str, int | None] = user_config.get("THRESHOLDS", {})
     return {**DEFAULTS["THRESHOLDS"], **user_thresholds}
+
+
+def get_ignored_logger_prefixes() -> tuple[str, ...]:
+    """Return namespace logger prefixes skipped by the database handler."""
+    user_config: dict[str, Any] = get_user_config()
+    user_prefixes: tuple[str, ...] = tuple(
+        user_config.get("IGNORED_LOGGER_PREFIXES", ())
+    )
+    return (*DEFAULTS["IGNORED_LOGGER_PREFIXES"], *user_prefixes)
+
+
+def get_ignored_logger_names() -> tuple[str, ...]:
+    """Return exact logger names skipped by the database handler."""
+    return tuple(get_setting(key="IGNORED_LOGGER_NAMES"))
+
+
+def get_ignored_message_substrings() -> tuple[str, ...]:
+    """Return message substrings skipped by the database handler."""
+    return tuple(get_setting(key="IGNORED_MESSAGE_SUBSTRINGS"))
 
 
 def get_ranges() -> dict[str, RangeConfig]:

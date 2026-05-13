@@ -11,7 +11,7 @@ from django.utils import timezone as django_timezone
 from log_panel import conf
 from log_panel.admin import LogAdmin
 from log_panel.filters import CardListFilter, TableListFilter
-from log_panel.models import Log
+from log_panel.models import Log, LogMessageChunk
 from log_panel.types import CardFilter, RangeConfig, RangeUnit
 
 
@@ -67,6 +67,35 @@ def test_changelist_view_with_logger_name_renders_table_view(panel_admin, factor
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
     assert response.context_data["view"] == "table"
+
+
+def test_get_urls_includes_message_view(panel_admin):
+    urls = panel_admin.get_urls()
+
+    assert any(url.name == "log_panel_log_message" for url in urls)
+
+
+@pytest.mark.django_db
+def test_message_view_renders_full_chunked_message(
+    panel_admin,
+    factory,
+    panel_factory,
+):
+    log = panel_factory(
+        logger_name="myapp",
+        message="preview",
+        message_chunked=True,
+    )
+    LogMessageChunk.objects.create(log=log, index=0, text="full ")
+    LogMessageChunk.objects.create(log=log, index=1, text="message")
+    request = factory.get(f"/admin/log_panel/log/{log.pk}/message/")
+
+    response = panel_admin.message_view(request, object_id=str(log.pk))
+
+    assert response.template_name == "admin/log_panel/panel/message.html"
+    assert response.context_data["log"] == log
+    assert response.context_data["log_message"] == "full message"
+    assert response.context_data["level_colors"] == conf.get_level_colors()
 
 
 def test_logger_cards_context_defaults_to_24h_range(panel_admin, factory):

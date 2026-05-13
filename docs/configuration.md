@@ -17,11 +17,35 @@
 | Setting | Default | Description |
 | --- | --- | --- |
 | `ATTACH_ROOT_HANDLER` | `True` | Auto-attach the matching `log_panel` handler to the root logger at startup. |
-| `LOG_LEVEL` | `"DEBUG"` | Minimum level for the auto-attached handler and root logger. Only used when `ATTACH_ROOT_HANDLER` is `True`. |
+| `LOG_LEVEL` | `"INFO"` | Minimum level for the auto-attached handler and root logger. Only used when `ATTACH_ROOT_HANDLER` is `True`. |
+| `IGNORED_LOGGER_PREFIXES` | `("pymongo",)` | Logger namespaces skipped by `DatabaseHandler`, including child loggers. User values extend the default. |
+| `IGNORED_LOGGER_NAMES` | `()` | Exact logger names skipped by `DatabaseHandler`. |
+| `IGNORED_MESSAGE_SUBSTRINGS` | `()` | Message substrings skipped by `DatabaseHandler`. Useful when a project SQL logger emits noisy third-party queries. |
 | `THRESHOLDS` | `{"WARNING": 1, "ERROR": 1, "CRITICAL": 1}` | Per-level alert thresholds for the `log_threshold_reached` signal. Omit a level to keep its default. Set a level to `None` to disable it. |
 
 !!! note "Ignored loggers"
-    `DatabaseHandler` silently skips records from `pymongo.*` loggers. pymongo's background monitor thread emits DEBUG logs during connection setup, which would cause recursive writes back to MongoDB. Django database and SQL loggers are still captured.
+    `DatabaseHandler` silently skips records from `pymongo` and `pymongo.*` loggers by default. pymongo's background monitor thread emits DEBUG logs during connection setup, which would cause recursive writes back to MongoDB. Django database and SQL loggers are still captured.
+
+    Add noisy application or third-party loggers through `LOG_PANEL`:
+
+    ```python
+    LOG_PANEL = {
+        "IGNORED_LOGGER_PREFIXES": ("silk",),
+        "IGNORED_LOGGER_NAMES": ("myapp.single_noisy_logger",),
+    }
+    ```
+
+    Prefixes are namespace-aware: `silk` matches `silk` and `silk.middleware`, but not `silky`.
+
+    For django-silk, SQL query logs will be heavy if `LOG_LEVEL` is `DEBUG`. Ignore the Silk table prefix in the message:
+
+    ```python
+    LOG_PANEL = {
+        "IGNORED_MESSAGE_SUBSTRINGS": ("silk_",),
+    }
+    ```
+
+    This skips logged queries for tables such as `"silk_request"` and `"silk_response"`.
 
 ## Admin UI and access settings
 

@@ -22,11 +22,6 @@ class DatabaseHandler(Handler):
     _local = threading.local()
     _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="log-panel-sql")
 
-    # Loggers whose records must never be written back to the database.
-    # pymongo emits DEBUG logs from a background monitor thread during
-    # connection setup, bypassing the thread-local recursion guard.
-    _IGNORED_LOGGER_PREFIXES: tuple[str, ...] = ("pymongo",)
-
     @staticmethod
     def count_matching_records(
         logger_name: str,
@@ -58,7 +53,9 @@ class DatabaseHandler(Handler):
         """
         if getattr(self._local, "emitting", False):
             return
-        if record.name.startswith(self._IGNORED_LOGGER_PREFIXES):
+        if self._is_ignored_logger(logger_name=record.name):
+            return
+        if self._is_ignored_message(record=record):
             return
         storage_error_classes = self._storage_error_classes()
         try:
@@ -73,6 +70,42 @@ class DatabaseHandler(Handler):
             self.handleError(record)
 
     @staticmethod
+    def _is_ignored_logger(*, logger_name: str) -> bool:
+        from log_panel.conf import (
+            get_ignored_logger_names,
+            get_ignored_logger_prefixes,
+        )
+
+        ignored_names = get_ignored_logger_names()
+        if logger_name in ignored_names:
+            return True
+
+        for prefix in get_ignored_logger_prefixes():
+            if logger_name == prefix or logger_name.startswith(f"{prefix}."):
+                return True
+        return False
+
+    @staticmethod
+    def _is_ignored_message(*, record: LogRecord) -> bool:
+        from log_panel.conf import get_ignored_message_substrings
+
+        ignored_substrings = get_ignored_message_substrings()
+        if not ignored_substrings:
+            return False
+
+        raw_parts: list[str] = []
+        if isinstance(record.msg, str):
+            raw_parts.append(record.msg)
+        if isinstance(record.args, tuple):
+            raw_parts.extend(arg for arg in record.args if isinstance(arg, str))
+        for substring in ignored_substrings:
+            if any(substring in part for part in raw_parts):
+                return True
+
+        message = record.getMessage()
+        return any(substring in message for substring in ignored_substrings)
+
+    @staticmethod
     def _storage_error_classes() -> tuple[type[Exception], ...]:
         from django.db import DatabaseError, InternalError, ProgrammingError
 
@@ -83,7 +116,7 @@ class DatabaseHandler(Handler):
         )
         try:
             from pymongo.errors import PyMongoError
-        except ImportError:
+        except ImportError:  # pragma: no cover
             return storage_error_classes
         return (*storage_error_classes, PyMongoError)
 

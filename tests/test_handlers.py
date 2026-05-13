@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
@@ -44,10 +45,74 @@ def test_database_handler_emit_creates_panel_record(log_record_factory):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("logger_name", ["pymongo", "pymongo.topology"])
-def test_database_handler_ignores_internal_loggers(log_record_factory, logger_name):
+def test_database_handler_ignores_builtin_logger_prefixes(
+    log_record_factory,
+    logger_name,
+):
     handler = DatabaseHandler()
     handler.emit(log_record_factory(name=logger_name))
     assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_PREFIXES": ("silk",)})
+@pytest.mark.parametrize("logger_name", ["silk", "silk.middleware"])
+def test_database_handler_ignores_configured_logger_prefixes(
+    log_record_factory,
+    logger_name,
+):
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory(name=logger_name))
+    assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_PREFIXES": ("silk",)})
+def test_database_handler_ignored_prefixes_respect_namespace_boundaries(
+    log_record_factory,
+):
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory(name="silky"))
+    assert Log.objects.filter(logger_name="silky").count() == 1
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_NAMES": ("myapp.noisy",)})
+def test_database_handler_ignores_configured_exact_logger_names(log_record_factory):
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory(name="myapp.noisy"))
+    handler.emit(log_record_factory(name="myapp.noisy.child"))
+
+    assert Log.objects.filter(logger_name="myapp.noisy").count() == 0
+    assert Log.objects.filter(logger_name="myapp.noisy.child").count() == 1
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"IGNORED_MESSAGE_SUBSTRINGS": ('"silk_response"',)})
+def test_database_handler_ignores_configured_message_substrings(log_record_factory):
+    record = log_record_factory(name="db_logging")
+    record.msg = "(%.3fms) %s; args=%s"
+    record.args = (
+        5.169,
+        'INSERT INTO "silk_response" ("id", "request_id") VALUES (%s, %s)',
+        ("92b03580", "99af0c04"),
+    )
+    handler = DatabaseHandler()
+
+    handler.emit(record)
+
+    assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"IGNORED_MESSAGE_SUBSTRINGS": ('"silk_response"',)})
+def test_database_handler_keeps_other_messages_from_same_logger(log_record_factory):
+    record = log_record_factory(name="db_logging", msg='SELECT * FROM "app_model"')
+    handler = DatabaseHandler()
+
+    handler.emit(record)
+
+    assert Log.objects.filter(logger_name="db_logging").count() == 1
 
 
 @pytest.mark.django_db
@@ -114,6 +179,23 @@ def test_database_handler_emit_stores_raw_message(log_record_factory):
 
     panel = Log.objects.get()
     assert panel.message == "raw message"
+
+
+@pytest.mark.django_db
+def test_database_handler_emit_appends_exception_traceback(log_record_factory):
+    try:
+        raise ValueError("bad value")
+    except ValueError:
+        record = log_record_factory(msg="failed with exception")
+        record.exc_info = sys.exc_info()
+
+    handler = DatabaseHandler()
+    handler.emit(record)
+
+    panel = Log.objects.get()
+    assert "failed with exception" in panel.message
+    assert "Traceback" in panel.message
+    assert "ValueError: bad value" in panel.message
 
 
 @pytest.mark.django_db
@@ -217,6 +299,20 @@ def test_database_handler_async_worker_skips_reentrant_call(log_record_factory):
         asyncio.run(emit_record())
 
     assert persisted_messages == ["outer"]
+
+
+def test_database_handler_emit_guarded_skips_reentrant_call(log_record_factory):
+    handler = DatabaseHandler()
+    record = log_record_factory()
+    handler._local.emitting = True
+
+    try:
+        with patch.object(handler, "_persist_record") as mock_persist_record:
+            handler._emit_guarded(record=record, manage_connections=False)
+    finally:
+        handler._local.emitting = False
+
+    mock_persist_record.assert_not_called()
 
 
 def test_database_handler_async_worker_silently_discards_database_error(

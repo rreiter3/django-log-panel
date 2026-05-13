@@ -9,6 +9,9 @@ from log_panel.backends.sql import OrmBackend
 from log_panel.conf import (
     get_backend,
     get_database_alias,
+    get_ignored_logger_names,
+    get_ignored_logger_prefixes,
+    get_ignored_message_substrings,
     get_level_colors,
     get_permission_callback,
     get_ranges,
@@ -164,6 +167,33 @@ def test_threshold_can_be_disabled():
     assert get_thresholds()["WARNING"] is None
 
 
+def test_get_ignored_logger_prefixes_includes_pymongo_by_default():
+    assert get_ignored_logger_prefixes() == ("pymongo",)
+
+
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_PREFIXES": ("silk",)})
+def test_get_ignored_logger_prefixes_extends_defaults():
+    assert get_ignored_logger_prefixes() == ("pymongo", "silk")
+
+
+def test_get_ignored_logger_names_defaults_to_empty_tuple():
+    assert get_ignored_logger_names() == ()
+
+
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_NAMES": ("myapp.noisy",)})
+def test_get_ignored_logger_names_returns_configured_names():
+    assert get_ignored_logger_names() == ("myapp.noisy",)
+
+
+def test_get_ignored_message_substrings_defaults_to_empty_tuple():
+    assert get_ignored_message_substrings() == ()
+
+
+@override_settings(LOG_PANEL={"IGNORED_MESSAGE_SUBSTRINGS": ('"silk_response"',)})
+def test_get_ignored_message_substrings_returns_configured_values():
+    assert get_ignored_message_substrings() == ('"silk_response"',)
+
+
 def test_ready_does_not_raise_when_no_alias_configured():
     import log_panel
     from log_panel.apps import LogPanelConfig
@@ -224,8 +254,8 @@ def test_attach_root_handler_default_is_true():
     assert get_setting("ATTACH_ROOT_HANDLER") is True
 
 
-def test_log_level_default_is_debug():
-    assert get_setting("LOG_LEVEL") == "DEBUG"
+def test_log_level_default_is_info():
+    assert get_setting("LOG_LEVEL") == "INFO"
 
 
 @override_settings(
