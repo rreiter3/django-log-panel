@@ -101,7 +101,7 @@ class LogsBackend(ABC):
                 hour=0, minute=0, second=0, microsecond=0
             )
             slot_delta: timedelta = timedelta(days=1)
-        else:
+        else:  # pragma: no cover
             raise ValueError(f"Unsupported range unit: {configured_unit!r}")
 
         return now_bucket_local, slot_delta

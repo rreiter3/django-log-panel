@@ -52,5 +52,4 @@
 - Automatic root-handler setup by default, with manual `LOGGING` control when needed.
 
 
-## Read the documentation
-[![Docs](https://img.shields.io/badge/docs-rreiter3.github.io-blue)](https://rreiter3.github.io/django-log-panel/)
+## [Documentation](https://rreiter3.github.io/django-log-panel/)

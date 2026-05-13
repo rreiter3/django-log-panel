@@ -50,7 +50,7 @@ class LogPanelConfig(AppConfig):
                 )
                 return
 
-        level: str | None = get_setting(key="LOG_LEVEL")
+        level: str = get_setting(key="LOG_LEVEL")
         actual_handler: DatabaseHandler = DatabaseHandler()
         actual_handler.setLevel(level)
         root.addHandler(hdlr=actual_handler)

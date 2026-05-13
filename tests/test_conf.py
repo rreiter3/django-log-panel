@@ -101,6 +101,13 @@ def test_get_backend_returns_explicit_backend_when_backend_key_set():
     assert isinstance(backend, OrmBackend)
 
 
+@override_settings(LOG_PANEL={"DATABASE_ALIAS": "default"})
+def test_get_backend_returns_cached_instance_on_second_call():
+    first = get_backend()
+    second = get_backend()
+    assert first is second
+
+
 @override_settings(
     LOG_PANEL={
         "BACKEND": "log_panel.backends.sql.OrmBackend",
