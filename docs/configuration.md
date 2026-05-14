@@ -18,6 +18,9 @@
 | --- | --- | --- |
 | `ATTACH_ROOT_HANDLER` | `True` | Auto-attach the matching `log_panel` handler to the root logger at startup. |
 | `LOG_LEVEL` | `"INFO"` | Minimum level for the auto-attached handler and root logger. Only used when `ATTACH_ROOT_HANDLER` is `True`. |
+| `BUFFER_SIZE` | `None` | Enable batch writes by setting this to a positive integer. When set, the auto-attached handler becomes a `BufferedDatabaseHandler` that accumulates up to this many records before flushing with a single `bulk_create`. `None` (default) keeps the original per-record `DatabaseHandler`. |
+| `BUFFER_FLUSH_INTERVAL` | `2.0` | Seconds between timer-based flushes. Only used when `BUFFER_SIZE` is set. |
+| `BUFFER_FLUSH_LEVEL` | `"WARNING"` | Records at or above this level trigger an immediate flush regardless of buffer size. Only used when `BUFFER_SIZE` is set. |
 | `IGNORED_LOGGER_PREFIXES` | `("pymongo",)` | Logger namespaces skipped by `DatabaseHandler`, including child loggers. User values extend the default. |
 | `IGNORED_LOGGER_NAMES` | `()` | Exact logger names skipped by `DatabaseHandler`. |
 | `IGNORED_MESSAGE_SUBSTRINGS` | `()` | Message substrings skipped by `DatabaseHandler`. Useful when a project SQL logger emits noisy third-party queries. |

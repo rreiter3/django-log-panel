@@ -98,26 +98,27 @@ def on_threshold_reached(sender, event: ThresholdAlertEvent, **kwargs):
 
 ## High-volume logging
 
-By default, both handlers write each record immediately. That is safest, but one database write per log call can become a bottleneck on busy applications.
+By default `DatabaseHandler` writes each record immediately — one database round-trip per log call. That is the safest option but can become a bottleneck when `LOG_LEVEL` is `DEBUG` or request volume is high.
 
-For high-volume logging across any backend, Python's standard `logging.handlers.MemoryHandler` can buffer records and flush them when:
+### BufferedDatabaseHandler
 
-- the buffer reaches `capacity`
-- a record at or above `flushLevel` is emitted
+`BufferedDatabaseHandler` accumulates records in memory and writes them in a single `bulk_create` call. Enable it by setting `BUFFER_SIZE` in your `LOG_PANEL` configuration:
 
-Example using the `DatabaseHandler` as the flush target:
+```python
+LOG_PANEL = {
+    "BUFFER_SIZE": 50,
+    "BUFFER_FLUSH_INTERVAL": 2.0,
+    "BUFFER_FLUSH_LEVEL": "WARNING",
+}
+```
+
+When `ATTACH_ROOT_HANDLER` is `True` (the default), the auto-attached handler is automatically upgraded to `BufferedDatabaseHandler` when `BUFFER_SIZE` is set. You can also attach it manually through Django's `LOGGING` configuration:
 
 ```python
 LOGGING = {
     "handlers": {
-        "log_panel_db": {
-            "class": "log_panel.handlers.DatabaseHandler",
-        },
         "log_panel": {
-            "class": "logging.handlers.MemoryHandler",
-            "capacity": 50,
-            "flushLevel": "ERROR",
-            "target": "log_panel_db",
+            "class": "log_panel.handlers.BufferedDatabaseHandler",
         },
     },
     "root": {
@@ -127,14 +128,18 @@ LOGGING = {
 }
 ```
 
-| Setting | Effect |
-| --- | --- |
-| Lower `capacity` | Smaller exposure window and more frequent writes. |
-| Higher `capacity` | Better throughput, but more records at risk on a hard crash. |
-| `flushLevel="ERROR"` | Errors flush immediately. |
-| `flushLevel="CRITICAL"` | Only critical records bypass buffering. |
+Flushes happen when any of these conditions are met:
 
-`MemoryHandler` flushes on `close()`, so normal shutdown does not lose buffered records. Only abrupt process termination can lose records that have not been flushed yet.
+| Trigger | Controlled by |
+| --- | --- |
+| Buffer reaches `BUFFER_SIZE` records | `LOG_PANEL['BUFFER_SIZE']` |
+| A record at or above `BUFFER_FLUSH_LEVEL` is emitted | `LOG_PANEL['BUFFER_FLUSH_LEVEL']` |
+| The periodic timer fires | `LOG_PANEL['BUFFER_FLUSH_INTERVAL']` |
+| `flush()` or `close()` is called explicitly | — |
+
+`close()` is called automatically during normal Django / uvicorn shutdown, so buffered records are not lost on a graceful stop. Only abrupt termination (SIGKILL, OOM) can drop records that have not been flushed yet.
+
+Threshold signals (`log_threshold_reached`) still fire per-record, but only after the batch is committed — delivery is delayed by at most one flush interval for timer-triggered flushes. Records at or above `BUFFER_FLUSH_LEVEL` (default `WARNING`) bypass buffering and flush immediately, so alerts for important levels are never delayed.
 
 ## Retention cleanup
 

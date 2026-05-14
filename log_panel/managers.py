@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
@@ -86,6 +86,42 @@ class LogRecordManager(models.Manager):
                 batch_size=100,
             )
         return log
+
+    def bulk_create_from_records(self, records: list[dict[str, Any]]) -> list[Log]:
+        """Persist multiple log records in a single bulk insert operation."""
+        from log_panel.models import LogMessageChunk
+
+        parts_list = [self._split_message(message=r["message"]) for r in records]
+
+        log_instances = [
+            self.model(
+                timestamp=to_database_datetime(value=r["timestamp"]),
+                level=r["level"],
+                logger_name=r["logger_name"],
+                message=parts.preview,
+                message_size=parts.size,
+                message_chunked=parts.is_chunked,
+                module=r["module"],
+                pathname=r["pathname"],
+                line_number=r["line_number"],
+            )
+            for r, parts in zip(records, parts_list, strict=True)
+        ]
+
+        created_logs: list[Log] = self.bulk_create(log_instances)
+
+        chunk_instances = [
+            LogMessageChunk(log=log, index=index, text=chunk)
+            for log, parts in zip(created_logs, parts_list, strict=True)
+            if parts.is_chunked
+            for index, chunk in enumerate(parts.chunks)
+        ]
+        if chunk_instances:
+            LogMessageChunk.objects.db_manager(self.db).bulk_create(
+                chunk_instances, batch_size=100
+            )
+
+        return created_logs
 
     @staticmethod
     def _split_message(*, message: str) -> MessageParts:

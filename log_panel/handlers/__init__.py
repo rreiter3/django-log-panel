@@ -1,3 +1,3 @@
-from .sql import DatabaseHandler
+from .sql import BufferedDatabaseHandler, DatabaseHandler
 
-__all__: list[str] = ["DatabaseHandler"]
+__all__: list[str] = ["BufferedDatabaseHandler", "DatabaseHandler"]

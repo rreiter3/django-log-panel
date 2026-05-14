@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -191,3 +192,179 @@ class DatabaseHandler(Handler):
         if record.exc_info:
             message += "\n" + Formatter().formatException(ei=record.exc_info)
         return message
+
+
+class BufferedDatabaseHandler(DatabaseHandler):
+    """
+    A DatabaseHandler that accumulates records in memory and flushes them in batches.
+
+    Flushes when any of the following conditions are met:
+
+    - The buffer reaches ``LOG_PANEL['BUFFER_SIZE']`` records.
+    - A record at or above ``LOG_PANEL['BUFFER_FLUSH_LEVEL']`` is emitted.
+    - The periodic timer fires (interval: ``LOG_PANEL['BUFFER_FLUSH_INTERVAL']`` seconds).
+    - ``flush()`` or ``close()`` is called explicitly.
+
+    Batches are written with a single ``bulk_create`` call.  Threshold signals fire
+    per-record after each flush, so alert semantics are preserved — only delivery is
+    delayed by at most one flush interval.
+
+    Records not yet flushed at process exit are lost only on abrupt termination
+    (SIGKILL, OOM).  Normal shutdown calls ``close()``, which drains the buffer first.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._buffer: list[LogRecord] = []
+        self._buffer_lock = threading.Lock()
+        self._closed = False
+        self._flush_timer: threading.Timer | None = None
+        self._schedule_timer()
+
+    def emit(self, record: LogRecord) -> None:
+        if getattr(self._local, "emitting", False):
+            return
+        if self._is_ignored_logger(logger_name=record.name):
+            return
+        if self._is_ignored_message(record=record):
+            return
+
+        from log_panel.conf import get_buffer_flush_level, get_buffer_size
+
+        buffer_size: int = get_buffer_size() or 100
+        flush_level_no: int = logging.getLevelName(get_buffer_flush_level())
+
+        batch: list[LogRecord] | None = None
+        with self._buffer_lock:
+            self._buffer.append(record)
+            if len(self._buffer) >= buffer_size or record.levelno >= flush_level_no:
+                batch = self._buffer[:]
+                self._buffer.clear()
+
+        if batch:
+            self._dispatch_batch(batch)
+
+    def flush(self) -> None:
+        with self._buffer_lock:
+            if not self._buffer:
+                return
+            batch = self._buffer[:]
+            self._buffer.clear()
+        self._dispatch_batch(batch)
+
+    def close(self) -> None:
+        self._closed = True
+        self._cancel_timer()
+        self.flush()
+        super().close()
+
+    def _schedule_timer(self) -> None:
+        from log_panel.conf import get_buffer_flush_interval
+
+        timer = threading.Timer(get_buffer_flush_interval(), self._timer_flush)
+        timer.daemon = True
+        timer.start()
+        self._flush_timer = timer
+
+    def _cancel_timer(self) -> None:
+        if self._flush_timer is not None:
+            self._flush_timer.cancel()
+            self._flush_timer = None
+
+    def _timer_flush(self) -> None:
+        with self._buffer_lock:
+            if not self._buffer:
+                batch: list[LogRecord] = []
+            else:
+                batch = self._buffer[:]
+                self._buffer.clear()
+
+        if batch:
+            storage_error_classes = self._storage_error_classes()
+            try:
+                self._emit_batch_guarded(records=batch, manage_connections=True)
+            except storage_error_classes:
+                pass
+            except Exception:
+                for record in batch:
+                    self.handleError(record)
+
+        if not self._closed:
+            self._schedule_timer()
+
+    def _dispatch_batch(self, records: list[LogRecord]) -> None:
+        storage_error_classes = self._storage_error_classes()
+        try:
+            if self._in_async_context():
+                self._wait_for_batch(records=records)
+            else:
+                self._emit_batch_guarded(records=records, manage_connections=False)
+        except storage_error_classes:
+            pass
+        except Exception:
+            for record in records:
+                self.handleError(record)
+
+    def _wait_for_batch(self, *, records: list[LogRecord]) -> None:
+        future = self._executor.submit(self._emit_batch_in_worker, records)
+        lock_released = False
+        is_owned: Any = getattr(self.lock, "_is_owned", None)
+        if callable(is_owned) and is_owned():
+            self.release()
+            lock_released = True
+        try:
+            future.result()
+        finally:
+            if lock_released:
+                self.acquire()
+
+    def _emit_batch_in_worker(self, records: list[LogRecord]) -> None:
+        self._emit_batch_guarded(records=records, manage_connections=True)
+
+    def _emit_batch_guarded(
+        self, *, records: list[LogRecord], manage_connections: bool
+    ) -> None:
+        if getattr(self._local, "emitting", False):
+            return
+        self._local.emitting = True
+        if manage_connections:
+            close_old_connections()
+        try:
+            self._persist_batch(records=records)
+        finally:
+            if manage_connections:
+                close_old_connections()
+            self._local.emitting = False
+
+    def _persist_batch(self, *, records: list[LogRecord]) -> None:
+        from log_panel.models import Log
+
+        formatted = [
+            {
+                "timestamp": from_record_timestamp(timestamp=r.created),
+                "level": r.levelname,
+                "logger_name": r.name,
+                "message": self._format_message(record=r),
+                "module": r.module,
+                "pathname": r.pathname,
+                "line_number": r.lineno,
+            }
+            for r in records
+        ]
+
+        logs: list[Log] = Log.objects.bulk_create_from_records(formatted)
+
+        for log in logs:
+            maybe_emit_threshold_signal(
+                sender=self.__class__,
+                logger_name=log.logger_name,
+                record_level=log.level,
+                timestamp=log.timestamp,
+                message=log.message,
+                module=log.module,
+                pathname=log.pathname,
+                line_number=log.line_number,
+                count_matching_records=partial(
+                    self.count_matching_records, log.logger_name
+                ),
+            )

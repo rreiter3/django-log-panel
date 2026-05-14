@@ -28,6 +28,10 @@ DEFAULTS: dict[str, Any] = {
     # Auto-attach handler to root logger on startup
     "ATTACH_ROOT_HANDLER": True,
     "LOG_LEVEL": "INFO",
+    # Buffered handler — None disables buffering (uses DatabaseHandler directly)
+    "BUFFER_SIZE": None,
+    "BUFFER_FLUSH_INTERVAL": 2.0,
+    "BUFFER_FLUSH_LEVEL": "WARNING",
     # Loggers whose records must never be written back to the log storage.
     "IGNORED_LOGGER_PREFIXES": ("pymongo",),
     "IGNORED_LOGGER_NAMES": (),
@@ -166,6 +170,21 @@ def get_backend():
 
     _backend_cache = None
     return None
+
+
+def get_buffer_size() -> int | None:
+    """Return the buffer size for BufferedDatabaseHandler, or None if buffering is disabled."""
+    return get_setting(key="BUFFER_SIZE")
+
+
+def get_buffer_flush_interval() -> float:
+    """Return the timer interval in seconds between periodic buffer flushes."""
+    return float(get_setting(key="BUFFER_FLUSH_INTERVAL"))
+
+
+def get_buffer_flush_level() -> str:
+    """Return the log level name that triggers an immediate buffer flush."""
+    return get_setting(key="BUFFER_FLUSH_LEVEL")
 
 
 def get_level_colors() -> dict[str, str]:

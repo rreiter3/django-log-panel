@@ -36,7 +36,7 @@ class LogPanelConfig(AppConfig):
         if not db_alias:
             return
 
-        from log_panel.handlers import DatabaseHandler
+        from log_panel.handlers import BufferedDatabaseHandler, DatabaseHandler
 
         root: logging.Logger = logging.getLogger()
 
@@ -51,7 +51,10 @@ class LogPanelConfig(AppConfig):
                 return
 
         level: str = get_setting(key="LOG_LEVEL")
-        actual_handler: DatabaseHandler = DatabaseHandler()
+        buffer_size = get_setting(key="BUFFER_SIZE")
+        actual_handler: DatabaseHandler = (
+            BufferedDatabaseHandler() if buffer_size is not None else DatabaseHandler()
+        )
         actual_handler.setLevel(level)
         root.addHandler(hdlr=actual_handler)
         root.setLevel(level)
