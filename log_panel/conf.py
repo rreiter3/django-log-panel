@@ -105,7 +105,7 @@ def get_ignored_logger_prefixes() -> tuple[str, ...]:
     user_prefixes: tuple[str, ...] = tuple(
         user_config.get("IGNORED_LOGGER_PREFIXES", ())
     )
-    return (*DEFAULTS["IGNORED_LOGGER_PREFIXES"], *user_prefixes)
+    return tuple(dict.fromkeys((*DEFAULTS["IGNORED_LOGGER_PREFIXES"], *user_prefixes)))
 
 
 def get_ignored_logger_names() -> tuple[str, ...]:

@@ -1,9 +1,8 @@
 import asyncio
 import logging
-import multiprocessing
 import os
-import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
@@ -24,7 +23,13 @@ class DatabaseHandler(Handler):
     """
 
     _local = threading.local()
-    _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="log-panel-sql")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="log-panel-sql",
+        )
 
     @staticmethod
     def count_matching_records(
@@ -72,6 +77,10 @@ class DatabaseHandler(Handler):
             pass
         except Exception:
             self.handleError(record)
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        super().close()
 
     @staticmethod
     def _is_ignored_logger(*, logger_name: str) -> bool:
@@ -205,25 +214,23 @@ class BufferedDatabaseHandler(DatabaseHandler):
 
     - The buffer reaches ``LOG_PANEL['BUFFER_SIZE']`` records.
     - A record at or above ``LOG_PANEL['BUFFER_FLUSH_LEVEL']`` is emitted.
-    - The periodic timer fires (interval: ``LOG_PANEL['BUFFER_FLUSH_INTERVAL']`` seconds).
+    - A later record arrives after ``LOG_PANEL['BUFFER_FLUSH_INTERVAL']`` seconds.
     - ``flush()`` or ``close()`` is called explicitly.
 
     Batches are written with a single ``bulk_create`` call.  Threshold signals fire
-    per-record after each flush, so alert semantics are preserved — only delivery is
-    delayed by at most one flush interval.
+    per-record after each flush, so alert semantics are preserved.
 
     Records not yet flushed at process exit are lost only on abrupt termination
-    (SIGKILL, OOM).  Normal shutdown calls ``close()``, which drains the buffer first.
+    (SIGKILL, OOM). Normal shutdown calls ``close()``, which drains the buffer first.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self._buffer: list[LogRecord] = []
         self._buffer_lock = threading.Lock()
-        self._timer_lock = threading.Lock()
         self._closed = False
-        self._flush_timer: threading.Timer | None = None
         self._owner_pid = os.getpid()
+        self._last_flush_at = time.monotonic()
 
     def emit(self, record: LogRecord) -> None:
         if getattr(self._local, "emitting", False):
@@ -235,118 +242,62 @@ class BufferedDatabaseHandler(DatabaseHandler):
 
         storage_error_classes = self._storage_error_classes()
         try:
-            self._ensure_timer()
+            self._ensure_process_state()
 
-            from log_panel.conf import get_buffer_flush_level, get_buffer_size
+            from log_panel.conf import (
+                get_buffer_flush_interval,
+                get_buffer_flush_level,
+                get_buffer_size,
+            )
 
             buffer_size: int = get_buffer_size() or 100
+            flush_interval: float = get_buffer_flush_interval()
             flush_level_no: int = logging.getLevelName(get_buffer_flush_level())
 
             batch: list[LogRecord] | None = None
             with self._buffer_lock:
                 self._buffer.append(record)
-                if len(self._buffer) >= buffer_size or record.levelno >= flush_level_no:
+                interval_elapsed = (
+                    time.monotonic() - self._last_flush_at >= flush_interval
+                )
+                if (
+                    len(self._buffer) >= buffer_size
+                    or record.levelno >= flush_level_no
+                    or interval_elapsed
+                ):
                     batch = self._buffer[:]
                     self._buffer.clear()
 
             if batch:
                 self._dispatch_batch(batch)
+                self._last_flush_at = time.monotonic()
         except storage_error_classes:
             pass
         except Exception:
             self.handleError(record)
 
     def flush(self) -> None:
-        self._ensure_timer()
+        self._ensure_process_state()
         with self._buffer_lock:
             if not self._buffer:
                 return
             batch = self._buffer[:]
             self._buffer.clear()
         self._dispatch_batch(batch)
+        self._last_flush_at = time.monotonic()
 
     def close(self) -> None:
         self._closed = True
-        self._cancel_timer()
         self.flush()
         super().close()
-
-    def _schedule_timer(self) -> None:
-        self._ensure_process_state()
-        if self._closed or self._is_reload_supervisor_process():
-            return
-        with self._timer_lock:
-            if self._flush_timer is None:
-                self._schedule_timer_locked()
-
-    def _schedule_timer_locked(self) -> None:
-        from log_panel.conf import get_buffer_flush_interval
-
-        timer = threading.Timer(get_buffer_flush_interval(), self._timer_flush)
-        timer.daemon = True
-        timer.start()
-        self._flush_timer = timer
-
-    def _ensure_timer(self) -> None:
-        self._ensure_process_state()
-        self._schedule_timer()
 
     def _ensure_process_state(self) -> None:
         current_pid = os.getpid()
         if current_pid == self._owner_pid:
             return
-        if self._flush_timer is not None:
-            cancel = getattr(self._flush_timer, "cancel", None)
-            if callable(cancel):
-                cancel()
         self._owner_pid = current_pid
         self._buffer_lock = threading.Lock()
-        self._timer_lock = threading.Lock()
-        self._flush_timer = None
-
-    def _cancel_timer(self) -> None:
-        with self._timer_lock:
-            if self._flush_timer is not None:
-                self._flush_timer.cancel()
-                self._flush_timer = None
-
-    def _timer_flush(self) -> None:
-        self._ensure_process_state()
-        with self._timer_lock:
-            if self._flush_timer is not None:
-                self._flush_timer.cancel()
-            self._flush_timer = None
-
-        with self._buffer_lock:
-            if not self._buffer:
-                batch: list[LogRecord] = []
-            else:
-                batch = self._buffer[:]
-                self._buffer.clear()
-
-        if batch:
-            storage_error_classes = self._storage_error_classes()
-            try:
-                self._emit_batch_guarded(records=batch, manage_connections=True)
-            except storage_error_classes:
-                pass
-            except Exception:
-                for record in batch:
-                    self.handleError(record)
-
-        if not self._closed:
-            self._schedule_timer()
-
-    @staticmethod
-    def _is_reload_supervisor_process() -> bool:
-        run_main = os.environ.get("RUN_MAIN")
-        if run_main is not None and run_main.lower() != "true":
-            return True
-        if "runserver" in sys.argv and run_main != "true":
-            return True
-        if "--reload" in sys.argv:
-            return multiprocessing.parent_process() is None
-        return False
+        self._last_flush_at = time.monotonic()
 
     def _dispatch_batch(self, records: list[LogRecord]) -> None:
         storage_error_classes = self._storage_error_classes()

@@ -236,6 +236,23 @@ def test_buffered_handler_ignores_configured_logger_prefix(log_record_factory, h
     LOG_PANEL={
         "BUFFER_SIZE": 1,
         "BUFFER_FLUSH_INTERVAL": 60,
+        "IGNORED_LOGGER_PREFIXES": ("silk",),
+    }
+)
+@pytest.mark.parametrize("logger_name", ["pymongo", "pymongo.topology"])
+def test_buffered_handler_keeps_builtin_prefixes_when_configured_prefixes_are_set(
+    log_record_factory, handler, logger_name
+):
+    handler.emit(log_record_factory(name=logger_name))
+
+    assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(
+    LOG_PANEL={
+        "BUFFER_SIZE": 1,
+        "BUFFER_FLUSH_INTERVAL": 60,
         "IGNORED_MESSAGE_SUBSTRINGS": ('"silk_response"',),
     }
 )
@@ -344,7 +361,7 @@ def test_buffered_handler_emit_silently_discards_storage_error_during_setup(
     from django.db import ProgrammingError
 
     with patch.object(
-        handler, "_ensure_timer", side_effect=ProgrammingError("no table")
+        handler, "_ensure_process_state", side_effect=ProgrammingError("no table")
     ):
         with patch.object(handler, "handleError") as mock_handle_error:
             handler.emit(log_record_factory())
@@ -359,7 +376,9 @@ def test_buffered_handler_emit_calls_handle_error_on_setup_exception(
 ):
     record = log_record_factory()
 
-    with patch.object(handler, "_ensure_timer", side_effect=RuntimeError("broken")):
+    with patch.object(
+        handler, "_ensure_process_state", side_effect=RuntimeError("broken")
+    ):
         with patch.object(handler, "handleError") as mock_handle_error:
             handler.emit(record)
 
@@ -368,7 +387,7 @@ def test_buffered_handler_emit_calls_handle_error_on_setup_exception(
 
 @pytest.mark.django_db
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 100, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_timer_flush_silently_discards_storage_error(
+def test_buffered_handler_flush_silently_discards_storage_error(
     log_record_factory, handler
 ):
     from django.db import ProgrammingError
@@ -378,14 +397,14 @@ def test_buffered_handler_timer_flush_silently_discards_storage_error(
     with patch("log_panel.models.Log.objects") as mock_objects:
         mock_objects.bulk_create_from_records.side_effect = ProgrammingError("no table")
         with patch.object(handler, "handleError") as mock_handle_error:
-            handler._timer_flush()
+            handler.flush()
 
     mock_handle_error.assert_not_called()
 
 
 @pytest.mark.django_db
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 100, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_timer_flush_calls_handle_error_on_unexpected_exception(
+def test_buffered_handler_flush_calls_handle_error_on_unexpected_exception(
     log_record_factory, handler
 ):
     record = log_record_factory(level=logging.INFO)
@@ -394,7 +413,7 @@ def test_buffered_handler_timer_flush_calls_handle_error_on_unexpected_exception
     with patch("log_panel.models.Log.objects") as mock_objects:
         mock_objects.bulk_create_from_records.side_effect = RuntimeError("db down")
         with patch.object(handler, "handleError") as mock_handle_error:
-            handler._timer_flush()
+            handler.flush()
 
     mock_handle_error.assert_called_once_with(record)
 
@@ -414,121 +433,28 @@ def test_buffered_handler_emit_batch_guarded_skips_reentrant_call(
 
 
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_init_does_not_start_timer():
-    handler = BufferedDatabaseHandler()
-    try:
-        assert handler._flush_timer is None
-    finally:
-        handler.close()
-
-
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_emit_starts_timer(log_record_factory):
-    handler = BufferedDatabaseHandler()
-    try:
-        with patch("log_panel.handlers.sql.threading.Timer") as mock_timer:
-            handler.emit(log_record_factory(level=logging.INFO))
-
-        mock_timer.assert_called_once_with(60.0, handler._timer_flush)
-        mock_timer.return_value.start.assert_called_once_with()
-        assert handler._flush_timer is mock_timer.return_value
-    finally:
-        handler._buffer.clear()
-        handler.close()
-
-
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_django_reload_supervisor_does_not_start_timer(
-    log_record_factory, monkeypatch
-):
-    monkeypatch.setenv("RUN_MAIN", "false")
+def test_buffered_handler_init_does_not_start_background_timer(log_record_factory):
     handler = BufferedDatabaseHandler()
     try:
         with patch("log_panel.handlers.sql.threading.Timer") as mock_timer:
             handler.emit(log_record_factory(level=logging.INFO))
 
         mock_timer.assert_not_called()
-        assert handler._flush_timer is None
     finally:
         handler._buffer.clear()
         handler.close()
 
 
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_runserver_parent_does_not_start_timer(
-    log_record_factory, monkeypatch
-):
-    monkeypatch.delenv("RUN_MAIN", raising=False)
-    monkeypatch.setattr(sys, "argv", ["manage.py", "runserver"])
-    handler = BufferedDatabaseHandler()
-    try:
-        with patch("log_panel.handlers.sql.threading.Timer") as mock_timer:
-            handler.emit(log_record_factory(level=logging.INFO))
-
-        mock_timer.assert_not_called()
-        assert handler._flush_timer is None
-    finally:
-        handler._buffer.clear()
-        handler.close()
-
-
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_uvicorn_reload_supervisor_does_not_start_timer(
-    log_record_factory, monkeypatch
-):
-    monkeypatch.setattr(sys, "argv", ["uvicorn", "config.asgi:application", "--reload"])
-    handler = BufferedDatabaseHandler()
-    try:
-        with patch(
-            "log_panel.handlers.sql.multiprocessing.parent_process",
-            return_value=None,
-        ):
-            with patch("log_panel.handlers.sql.threading.Timer") as mock_timer:
-                handler.emit(log_record_factory(level=logging.INFO))
-
-        mock_timer.assert_not_called()
-        assert handler._flush_timer is None
-    finally:
-        handler._buffer.clear()
-        handler.close()
-
-
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_uvicorn_reload_child_starts_timer(
-    log_record_factory, monkeypatch
-):
-    parent_process = object()
-    monkeypatch.setattr(sys, "argv", ["uvicorn", "config.asgi:application", "--reload"])
-    handler = BufferedDatabaseHandler()
-    try:
-        with patch(
-            "log_panel.handlers.sql.multiprocessing.parent_process",
-            return_value=parent_process,
-        ):
-            with patch("log_panel.handlers.sql.threading.Timer") as mock_timer:
-                handler.emit(log_record_factory(level=logging.INFO))
-
-        mock_timer.assert_called_once_with(60.0, handler._timer_flush)
-        mock_timer.return_value.start.assert_called_once_with()
-        assert handler._flush_timer is mock_timer.return_value
-    finally:
-        handler._buffer.clear()
-        handler.close()
-
-
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_pid_change_resets_timer_state(log_record_factory):
+def test_buffered_handler_pid_change_resets_process_state(log_record_factory):
     handler = BufferedDatabaseHandler()
     handler._owner_pid = -1
-    stale_timer = threading.Timer(60, lambda: None)
-    handler._flush_timer = stale_timer
+    original_lock = handler._buffer_lock
     try:
-        with patch("log_panel.handlers.sql.threading.Timer") as mock_timer:
-            handler.emit(log_record_factory(level=logging.INFO))
+        handler.emit(log_record_factory(level=logging.INFO))
 
         assert handler._owner_pid != -1
-        assert handler._flush_timer is mock_timer.return_value
-        mock_timer.assert_called_once_with(60.0, handler._timer_flush)
+        assert handler._buffer_lock is not original_lock
     finally:
         handler._buffer.clear()
         handler.close()
@@ -580,38 +506,17 @@ def test_buffered_handler_async_silently_discards_storage_error(log_record_facto
 
 @pytest.mark.django_db
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 100, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_timer_flush_persists_records(log_record_factory, handler):
-    handler.emit(log_record_factory(level=logging.INFO))
+def test_buffered_handler_flush_interval_flushes_on_log_activity(
+    log_record_factory, handler
+):
     handler.emit(log_record_factory(level=logging.INFO))
 
     assert Log.objects.count() == 0
 
-    handler._timer_flush()
+    handler._last_flush_at -= 61
+    handler.emit(log_record_factory(level=logging.INFO))
 
     assert Log.objects.count() == 2
-
-
-@pytest.mark.django_db
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 100, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_timer_reschedules_after_flush(log_record_factory, handler):
-    handler._ensure_timer()
-    first_timer = handler._flush_timer
-
-    handler._timer_flush()
-
-    assert handler._flush_timer is not first_timer
-    assert handler._flush_timer is not None
-
-
-@pytest.mark.django_db
-@override_settings(LOG_PANEL={"BUFFER_SIZE": 100, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_timer_does_not_reschedule_after_close(
-    log_record_factory,
-):
-    handler = BufferedDatabaseHandler()
-    handler.close()
-
-    assert handler._flush_timer is None
 
 
 @override_settings(

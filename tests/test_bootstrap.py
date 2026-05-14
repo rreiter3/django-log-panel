@@ -48,7 +48,7 @@ def test_build_database_handler_uses_buffered_handler_when_buffer_size_is_set():
     try:
         assert isinstance(handler, BufferedDatabaseHandler)
         assert handler.level == logging.ERROR
-        assert handler._flush_timer is None
+        assert handler._buffer == []
     finally:
         handler.close()
 

@@ -68,6 +68,18 @@ def test_database_handler_ignores_configured_logger_prefixes(
 
 @pytest.mark.django_db
 @override_settings(LOG_PANEL={"IGNORED_LOGGER_PREFIXES": ("silk",)})
+@pytest.mark.parametrize("logger_name", ["pymongo", "pymongo.topology"])
+def test_database_handler_keeps_builtin_prefixes_when_configured_prefixes_are_set(
+    log_record_factory,
+    logger_name,
+):
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory(name=logger_name))
+    assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_PREFIXES": ("silk",)})
 def test_database_handler_ignored_prefixes_respect_namespace_boundaries(
     log_record_factory,
 ):
@@ -575,6 +587,14 @@ def test_database_handler_emit_skips_reentrant_call(log_record_factory):
     finally:
         handler._local.emitting = False
     assert Log.objects.count() == 0
+
+
+def test_database_handler_close_shuts_down_worker_executor():
+    handler = DatabaseHandler()
+    with patch.object(handler._executor, "shutdown") as mock_shutdown:
+        handler.close()
+
+    mock_shutdown.assert_called_once_with(wait=False, cancel_futures=True)
 
 
 @pytest.mark.django_db

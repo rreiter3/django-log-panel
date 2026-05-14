@@ -134,12 +134,12 @@ Flushes happen when any of these conditions are met:
 | --- | --- |
 | Buffer reaches `BUFFER_SIZE` records | `LOG_PANEL['BUFFER_SIZE']` |
 | A record at or above `BUFFER_FLUSH_LEVEL` is emitted | `LOG_PANEL['BUFFER_FLUSH_LEVEL']` |
-| The periodic timer fires | `LOG_PANEL['BUFFER_FLUSH_INTERVAL']` |
+| A later log arrives after the flush interval elapsed | `LOG_PANEL['BUFFER_FLUSH_INTERVAL']` |
 | `flush()` or `close()` is called explicitly | — |
 
 `close()` is called automatically during normal Django / uvicorn shutdown, so buffered records are not lost on a graceful stop. Only abrupt termination (SIGKILL, OOM) can drop records that have not been flushed yet.
 
-Threshold signals (`log_threshold_reached`) still fire per-record, but only after the batch is committed — delivery is delayed by at most one flush interval for timer-triggered flushes. Records at or above `BUFFER_FLUSH_LEVEL` (default `WARNING`) bypass buffering and flush immediately, so alerts for important levels are never delayed.
+Threshold signals (`log_threshold_reached`) still fire per-record, but only after the batch is committed. Records at or above `BUFFER_FLUSH_LEVEL` (default `WARNING`) bypass buffering and flush immediately, so alerts for important levels are never delayed.
 
 ## Retention cleanup
 

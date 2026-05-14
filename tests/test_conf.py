@@ -176,6 +176,11 @@ def test_get_ignored_logger_prefixes_extends_defaults():
     assert get_ignored_logger_prefixes() == ("pymongo", "silk")
 
 
+@override_settings(LOG_PANEL={"IGNORED_LOGGER_PREFIXES": ("pymongo", "silk")})
+def test_get_ignored_logger_prefixes_deduplicates_defaults():
+    assert get_ignored_logger_prefixes() == ("pymongo", "silk")
+
+
 def test_get_ignored_logger_names_defaults_to_empty_tuple():
     assert get_ignored_logger_names() == ()
 
