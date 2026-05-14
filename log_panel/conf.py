@@ -102,9 +102,10 @@ def get_thresholds() -> dict[str, int | None]:
 def get_ignored_logger_prefixes() -> tuple[str, ...]:
     """Return namespace logger prefixes skipped by the database handler."""
     user_config: dict[str, Any] = get_user_config()
-    if "IGNORED_LOGGER_PREFIXES" in user_config:
-        return tuple(user_config["IGNORED_LOGGER_PREFIXES"])
-    return DEFAULTS["IGNORED_LOGGER_PREFIXES"]
+    user_prefixes: tuple[str, ...] = tuple(
+        user_config.get("IGNORED_LOGGER_PREFIXES", ())
+    )
+    return (*DEFAULTS["IGNORED_LOGGER_PREFIXES"], *user_prefixes)
 
 
 def get_ignored_logger_names() -> tuple[str, ...]:
