@@ -1,5 +1,8 @@
 import asyncio
 import logging
+import multiprocessing
+import os
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -217,9 +220,10 @@ class BufferedDatabaseHandler(DatabaseHandler):
         super().__init__()
         self._buffer: list[LogRecord] = []
         self._buffer_lock = threading.Lock()
+        self._timer_lock = threading.Lock()
         self._closed = False
         self._flush_timer: threading.Timer | None = None
-        self._schedule_timer()
+        self._owner_pid = os.getpid()
 
     def emit(self, record: LogRecord) -> None:
         if getattr(self._local, "emitting", False):
@@ -231,6 +235,8 @@ class BufferedDatabaseHandler(DatabaseHandler):
 
         storage_error_classes = self._storage_error_classes()
         try:
+            self._ensure_timer()
+
             from log_panel.conf import get_buffer_flush_level, get_buffer_size
 
             buffer_size: int = get_buffer_size() or 100
@@ -251,6 +257,7 @@ class BufferedDatabaseHandler(DatabaseHandler):
             self.handleError(record)
 
     def flush(self) -> None:
+        self._ensure_timer()
         with self._buffer_lock:
             if not self._buffer:
                 return
@@ -265,6 +272,14 @@ class BufferedDatabaseHandler(DatabaseHandler):
         super().close()
 
     def _schedule_timer(self) -> None:
+        self._ensure_process_state()
+        if self._closed or self._is_reload_supervisor_process():
+            return
+        with self._timer_lock:
+            if self._flush_timer is None:
+                self._schedule_timer_locked()
+
+    def _schedule_timer_locked(self) -> None:
         from log_panel.conf import get_buffer_flush_interval
 
         timer = threading.Timer(get_buffer_flush_interval(), self._timer_flush)
@@ -272,12 +287,36 @@ class BufferedDatabaseHandler(DatabaseHandler):
         timer.start()
         self._flush_timer = timer
 
-    def _cancel_timer(self) -> None:
+    def _ensure_timer(self) -> None:
+        self._ensure_process_state()
+        self._schedule_timer()
+
+    def _ensure_process_state(self) -> None:
+        current_pid = os.getpid()
+        if current_pid == self._owner_pid:
+            return
         if self._flush_timer is not None:
-            self._flush_timer.cancel()
-            self._flush_timer = None
+            cancel = getattr(self._flush_timer, "cancel", None)
+            if callable(cancel):
+                cancel()
+        self._owner_pid = current_pid
+        self._buffer_lock = threading.Lock()
+        self._timer_lock = threading.Lock()
+        self._flush_timer = None
+
+    def _cancel_timer(self) -> None:
+        with self._timer_lock:
+            if self._flush_timer is not None:
+                self._flush_timer.cancel()
+                self._flush_timer = None
 
     def _timer_flush(self) -> None:
+        self._ensure_process_state()
+        with self._timer_lock:
+            if self._flush_timer is not None:
+                self._flush_timer.cancel()
+            self._flush_timer = None
+
         with self._buffer_lock:
             if not self._buffer:
                 batch: list[LogRecord] = []
@@ -297,6 +336,17 @@ class BufferedDatabaseHandler(DatabaseHandler):
 
         if not self._closed:
             self._schedule_timer()
+
+    @staticmethod
+    def _is_reload_supervisor_process() -> bool:
+        run_main = os.environ.get("RUN_MAIN")
+        if run_main is not None and run_main.lower() != "true":
+            return True
+        if "runserver" in sys.argv and run_main != "true":
+            return True
+        if "--reload" in sys.argv:
+            return multiprocessing.parent_process() is None
+        return False
 
     def _dispatch_batch(self, records: list[LogRecord]) -> None:
         storage_error_classes = self._storage_error_classes()
