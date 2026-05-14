@@ -229,20 +229,26 @@ class BufferedDatabaseHandler(DatabaseHandler):
         if self._is_ignored_message(record=record):
             return
 
-        from log_panel.conf import get_buffer_flush_level, get_buffer_size
+        storage_error_classes = self._storage_error_classes()
+        try:
+            from log_panel.conf import get_buffer_flush_level, get_buffer_size
 
-        buffer_size: int = get_buffer_size() or 100
-        flush_level_no: int = logging.getLevelName(get_buffer_flush_level())
+            buffer_size: int = get_buffer_size() or 100
+            flush_level_no: int = logging.getLevelName(get_buffer_flush_level())
 
-        batch: list[LogRecord] | None = None
-        with self._buffer_lock:
-            self._buffer.append(record)
-            if len(self._buffer) >= buffer_size or record.levelno >= flush_level_no:
-                batch = self._buffer[:]
-                self._buffer.clear()
+            batch: list[LogRecord] | None = None
+            with self._buffer_lock:
+                self._buffer.append(record)
+                if len(self._buffer) >= buffer_size or record.levelno >= flush_level_no:
+                    batch = self._buffer[:]
+                    self._buffer.clear()
 
-        if batch:
-            self._dispatch_batch(batch)
+            if batch:
+                self._dispatch_batch(batch)
+        except storage_error_classes:
+            pass
+        except Exception:
+            self.handleError(record)
 
     def flush(self) -> None:
         with self._buffer_lock:

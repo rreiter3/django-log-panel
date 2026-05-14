@@ -29,12 +29,20 @@
 !!! note "Ignored loggers"
     `DatabaseHandler` silently skips records from `pymongo` and `pymongo.*` loggers by default. pymongo's background monitor thread emits DEBUG logs during connection setup, which would cause recursive writes back to MongoDB. Django database and SQL loggers are still captured.
 
-    Add noisy application or third-party loggers through `LOG_PANEL`:
+    Setting `IGNORED_LOGGER_PREFIXES` **replaces** the default list entirely. To keep `pymongo` ignored while adding your own prefixes, include `"pymongo"` explicitly:
 
     ```python
     LOG_PANEL = {
-        "IGNORED_LOGGER_PREFIXES": ("silk",),
+        "IGNORED_LOGGER_PREFIXES": ("pymongo", "silk"),
         "IGNORED_LOGGER_NAMES": ("myapp.single_noisy_logger",),
+    }
+    ```
+
+    To inspect pymongo logs (remove the default), set an empty tuple or omit `"pymongo"`:
+
+    ```python
+    LOG_PANEL = {
+        "IGNORED_LOGGER_PREFIXES": (),
     }
     ```
 
