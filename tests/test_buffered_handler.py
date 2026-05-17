@@ -460,6 +460,42 @@ def test_buffered_handler_pid_change_resets_process_state(log_record_factory):
         handler.close()
 
 
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"BUFFER_SIZE": 1, "BUFFER_FLUSH_INTERVAL": 60})
+def test_buffered_handler_emit_skips_migration_commands(
+    log_record_factory, monkeypatch
+):
+    monkeypatch.setattr("log_panel.handlers.sql.sys.argv", ["manage.py", "migrate"])
+
+    handler = BufferedDatabaseHandler()
+    try:
+        handler.emit(log_record_factory())
+
+        assert Log.objects.count() == 0
+        assert handler._buffer == []
+    finally:
+        handler.close()
+
+
+@pytest.mark.django_db
+@override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
+def test_buffered_handler_flush_skips_migration_commands(
+    log_record_factory, monkeypatch
+):
+    handler = BufferedDatabaseHandler()
+    try:
+        handler.emit(log_record_factory(level=logging.INFO))
+        monkeypatch.setattr("log_panel.handlers.sql.sys.argv", ["manage.py", "migrate"])
+
+        handler.flush()
+
+        assert Log.objects.count() == 0
+        assert len(handler._buffer) == 1
+    finally:
+        handler._buffer.clear()
+        handler.close()
+
+
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 1, "BUFFER_FLUSH_INTERVAL": 60})
 def test_buffered_handler_async_context_uses_worker_thread(log_record_factory):
     handler = BufferedDatabaseHandler()

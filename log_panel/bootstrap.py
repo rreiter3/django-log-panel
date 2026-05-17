@@ -98,7 +98,12 @@ def attach_root_handler_on_request_started(**kwargs) -> None:
 def should_defer_root_handler_attachment() -> bool:
     """Return whether root logging should wait until the serving process handles requests."""
     command_names = {Path(argument).name for argument in sys.argv}
-    return bool(command_names & SERVER_COMMANDS)
+    if command_names & SERVER_COMMANDS:
+        return True
+    # Handle `python -m <server>` where sys.argv[0] is .../server/__main__.py
+    if sys.argv and set(Path(sys.argv[0]).parts) & SERVER_COMMANDS:
+        return True
+    return False
 
 
 def is_migration_command() -> bool:

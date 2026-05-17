@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -62,6 +63,8 @@ class DatabaseHandler(Handler):
         """
         if getattr(self._local, "emitting", False):
             return
+        if self._is_migration_command():
+            return
         if self._is_ignored_logger(logger_name=record.name):
             return
         if self._is_ignored_message(record=record):
@@ -81,6 +84,10 @@ class DatabaseHandler(Handler):
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
         super().close()
+
+    @staticmethod
+    def _is_migration_command() -> bool:
+        return bool({"makemigrations", "migrate"} & set(sys.argv))
 
     @staticmethod
     def _is_ignored_logger(*, logger_name: str) -> bool:
@@ -235,6 +242,8 @@ class BufferedDatabaseHandler(DatabaseHandler):
     def emit(self, record: LogRecord) -> None:
         if getattr(self._local, "emitting", False):
             return
+        if self._is_migration_command():
+            return
         if self._is_ignored_logger(logger_name=record.name):
             return
         if self._is_ignored_message(record=record):
@@ -277,6 +286,8 @@ class BufferedDatabaseHandler(DatabaseHandler):
             self.handleError(record)
 
     def flush(self) -> None:
+        if self._is_migration_command():
+            return
         self._ensure_process_state()
         with self._buffer_lock:
             if not self._buffer:

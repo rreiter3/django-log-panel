@@ -589,6 +589,18 @@ def test_database_handler_emit_skips_reentrant_call(log_record_factory):
     assert Log.objects.count() == 0
 
 
+@pytest.mark.django_db
+def test_database_handler_emit_skips_migration_commands(
+    log_record_factory, monkeypatch
+):
+    monkeypatch.setattr("log_panel.handlers.sql.sys.argv", ["manage.py", "migrate"])
+
+    handler = DatabaseHandler()
+    handler.emit(log_record_factory())
+
+    assert Log.objects.count() == 0
+
+
 def test_database_handler_close_shuts_down_worker_executor():
     handler = DatabaseHandler()
     with patch.object(handler._executor, "shutdown") as mock_shutdown:

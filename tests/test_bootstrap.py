@@ -196,6 +196,47 @@ def test_configure_root_handler_defers_server_attachment_until_first_request(
     )
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [
+            "/opt/venv/lib/python3.14/site-packages/uvicorn/__main__.py",
+            "config.asgi:application",
+        ],
+        [
+            "/opt/venv/lib/python3.14/site-packages/daphne/__main__.py",
+            "config.asgi:application",
+        ],
+        [
+            "/opt/venv/lib/python3.14/site-packages/gunicorn/__main__.py",
+            "config.asgi:application",
+        ],
+    ],
+)
+@override_settings(
+    LOG_PANEL={
+        "ATTACH_ROOT_HANDLER": True,
+        "DATABASE_ALIAS": "logs",
+        "BUFFER_SIZE": 50,
+    }
+)
+def test_configure_root_handler_defers_when_run_as_module(monkeypatch, argv):
+    monkeypatch.setattr("log_panel.bootstrap.sys.argv", argv)
+
+    from unittest.mock import patch
+
+    with patch("log_panel.bootstrap.attach_root_handler") as mock_attach:
+        with patch("log_panel.bootstrap.request_started.connect") as mock_connect:
+            configure_root_handler()
+
+    mock_attach.assert_not_called()
+    mock_connect.assert_called_once_with(
+        attach_root_handler_on_request_started,
+        dispatch_uid=REQUEST_STARTED_DISPATCH_UID,
+        weak=False,
+    )
+
+
 def test_attach_root_handler_on_request_started_disconnects_then_attaches():
     from unittest.mock import patch
 
