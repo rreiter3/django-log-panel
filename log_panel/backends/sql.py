@@ -1,15 +1,13 @@
-from collections import defaultdict
 from datetime import datetime, timedelta, tzinfo
-from typing import Literal
 
 from django.db.models import Q
 
 from log_panel import conf
 from log_panel.backends.base import LogsBackend
 from log_panel.datetimes import to_database_datetime, to_display_datetime
-from log_panel.models import Log
+from log_panel.models import Log, LogCard, LogTimelineBucket
 from log_panel.querysets import LogQuerySet
-from log_panel.types import LogLevel, RangeConfig, SlotStatus
+from log_panel.types import RangeConfig, RangeUnit, SlotStatus
 
 
 class OrmBackend(LogsBackend):
@@ -28,14 +26,17 @@ class OrmBackend(LogsBackend):
         return Log.objects.all()
 
     def get_logger_cards(
-        self, now_utc: datetime, range_config: RangeConfig, app_timezone: tzinfo
-    ) -> list[dict]:
+        self,
+        now_utc: datetime,
+        range_config: RangeConfig,
+        app_timezone: tzinfo,
+        page: int = 1,
+        page_size: int = 5,
+        card_filter: str = "",
+    ) -> tuple[list[dict], int]:
         """
-        Aggregate per-logger stats and build timeline slots.
-
-        Delegates card aggregation to ``LogQuerySet.cards_aggregation`` and
-        timeline bucketing to ``LogQuerySet.timeline_aggregation``, then
-        assembles final row dicts with timeline slot labels and statuses.
+        Read pre-computed LogCard rows with pagination, then enrich with
+        recent counts and timeline slots for only the current page's loggers.
         """
         one_hour_ago: datetime = to_database_datetime(
             value=now_utc - timedelta(hours=1), app_timezone=app_timezone
@@ -44,11 +45,38 @@ class OrmBackend(LogsBackend):
             value=now_utc - range_config.delta, app_timezone=app_timezone
         )
 
-        cards: LogQuerySet = self.get_queryset().cards_aggregation(
-            one_hour_ago=one_hour_ago
+        card_qs = (
+            LogCard.objects.select_related("logger")
+            .order_by("-last_seen")
+            .for_card_filter(card_filter)  # ty: ignore[unresolved-attribute]
         )
-        timeline_qs: LogQuerySet = self.get_queryset().timeline_aggregation(
-            cutoff=cutoff, range_config=range_config, app_timezone=app_timezone
+        total_cards: int = card_qs.count()
+        skip: int = (page - 1) * page_size
+        page_cards = list(card_qs[skip : skip + page_size])
+
+        if not page_cards:
+            return [], total_cards
+
+        page_logger_names: list[str] = [c.logger.name for c in page_cards]
+        page_logger_ids: list = [c.logger_id for c in page_cards]
+
+        recent_by_logger: dict[str, dict[str, int]] = {
+            r["logger_name"]: r
+            for r in self.get_queryset()
+            .filter(logger_name__in=page_logger_names)
+            .recent_aggregation(one_hour_ago=one_hour_ago)
+        }
+
+        bucket_unit: str = "hour" if range_config.unit is RangeUnit.HOUR else "day"
+        thresholds: dict[str, int | None] = conf.get_thresholds()
+        timeline_by_logger = (
+            LogTimelineBucket.objects.all()
+            .for_loggers(page_logger_ids, bucket_unit, cutoff)  # ty: ignore[unresolved-attribute]
+            .to_status_map(
+                error_threshold=thresholds.get("ERROR") or 1,
+                warning_threshold=thresholds.get("WARNING") or 1,
+                app_timezone=app_timezone,
+            )
         )
 
         now_bucket_local, slot_delta = self.get_local_now_and_slot_delta(
@@ -58,7 +86,6 @@ class OrmBackend(LogsBackend):
         )
         slots_count: int = range_config.slots
 
-        # Aware slot boundaries in app timezone, oldest first.
         slot_boundaries: list[datetime] = [
             now_bucket_local - slot_delta * i for i in range(slots_count - 1, -1, -1)
         ]
@@ -72,39 +99,15 @@ class OrmBackend(LogsBackend):
             (dt + slot_delta).strftime("%Y-%m-%dT%H:%M") for dt in slot_boundaries
         ]
 
-        # entry["bucket"] may be naive when USE_TZ=False; make it aware so the
-        # dict lookup against the aware slot_boundaries list always finds a match.
-        from django.utils.timezone import is_naive, make_aware
-
-        thresholds: dict[str, int | None] = conf.get_thresholds()
-        error_threshold: int = thresholds.get("ERROR") or 1
-        warning_threshold: int = thresholds.get("WARNING") or 1
-
-        timeline_by_logger: dict[str, dict[datetime, SlotStatus]] = defaultdict(dict)
-        for entry in timeline_qs:
-            status: Literal[SlotStatus.ERROR, SlotStatus.WARNING, SlotStatus.OK] = (
-                SlotStatus.ERROR
-                if entry["has_error"] >= error_threshold
-                else (
-                    SlotStatus.WARNING
-                    if entry["has_warning"] >= warning_threshold
-                    else SlotStatus.OK
-                )
-            )
-            bucket: datetime = entry["bucket"]
-            if is_naive(bucket):
-                bucket = make_aware(bucket, app_timezone)
-            timeline_by_logger[entry["logger_name"]][bucket] = status
-
         rows: list[dict] = []
-        for doc in cards:
-            logger_name: str = doc["logger_name"]
+        for card in page_cards:
+            logger_name: str = card.logger.name
+            recent: dict[str, int] = recent_by_logger.get(logger_name, {})
+            logger_timeline = timeline_by_logger.get(logger_name, {})
             slots: list[dict[str, str]] = [
                 {
                     "label": slot_labels[i],
-                    "status": timeline_by_logger[logger_name].get(
-                        slot_boundaries[i], SlotStatus.EMPTY
-                    ),
+                    "status": logger_timeline.get(slot_boundaries[i], SlotStatus.EMPTY),
                     "timestamp_from": slot_from_iso[i],
                     "timestamp_to": slot_to_iso[i],
                 }
@@ -113,16 +116,16 @@ class OrmBackend(LogsBackend):
             rows.append(
                 {
                     "logger_name": logger_name,
-                    "total": doc["total"],
-                    "total_errors": doc["total_errors"] or 0,
-                    "total_warnings": doc["total_warnings"] or 0,
-                    "recent_errors": doc["recent_errors"] or 0,
-                    "recent_warnings": doc["recent_warnings"] or 0,
-                    "last_seen": doc["last_seen"],
+                    "total": card.total,
+                    "total_errors": card.total_errors,
+                    "total_warnings": card.total_warnings,
+                    "recent_errors": recent.get("recent_errors", 0) or 0,
+                    "recent_warnings": recent.get("recent_warnings", 0) or 0,
+                    "last_seen": card.last_seen,
                     "timeline": slots,
                 }
             )
-        return rows
+        return rows, total_cards
 
     def _apply_log_filters(
         self,
@@ -206,70 +209,3 @@ class OrmBackend(LogsBackend):
         return self._apply_log_filters(
             logger_names, levels, search, timestamp_from, timestamp_to
         ).count()
-
-    def get_modules(self, logger_name: str) -> list[str]:
-        """Return a sorted list of distinct module names for the given logger."""
-        return sorted(
-            self.get_queryset()
-            .filter(logger_name=logger_name)
-            .values_list("module", flat=True)
-            .distinct()
-        )
-
-    def get_log_table(
-        self,
-        logger_name: str,
-        level: LogLevel | str,
-        search: str,
-        page: int,
-        page_size: int,
-        app_timezone: tzinfo,
-        timestamp_from: datetime | None = None,
-        timestamp_to: datetime | None = None,
-        module: str = "",
-    ) -> tuple[list[dict], int]:
-        """Query individual log entries with optional level and message filters."""
-        qs: LogQuerySet = self.get_queryset().filter(logger_name=logger_name)
-        if level:
-            qs: LogQuerySet = qs.filter(level=level)
-        if module:
-            qs: LogQuerySet = qs.filter(module=module)
-        if search:
-            qs: LogQuerySet = qs.filter(
-                Q(message__icontains=search) | Q(message_chunks__text__icontains=search)
-            ).distinct()
-        if timestamp_from:
-            qs = qs.filter(
-                timestamp__gte=to_database_datetime(
-                    value=timestamp_from, app_timezone=app_timezone
-                )
-            )
-        if timestamp_to:
-            qs = qs.filter(
-                timestamp__lt=to_database_datetime(
-                    value=timestamp_to, app_timezone=app_timezone
-                )
-            )
-
-        total: int = qs.count()
-        skip: int = (page - 1) * page_size
-        raw_logs: LogQuerySet = qs.order_by("-timestamp")[skip : skip + page_size]
-
-        logs: list[dict] = [
-            {
-                "id": str(object=log.pk),
-                "timestamp": to_display_datetime(
-                    value=log.timestamp, app_timezone=app_timezone
-                ),
-                "level": log.level,
-                "logger_name": log.logger_name,
-                "message": log.message,
-                "message_size": log.message_size,
-                "message_chunked": log.message_chunked,
-                "module": log.module,
-                "pathname": log.pathname,
-                "line_number": log.line_number,
-            }
-            for log in raw_logs
-        ]
-        return logs, total

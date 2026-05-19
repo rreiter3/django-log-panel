@@ -303,7 +303,7 @@ def test_buffered_handler_signals_threshold_after_batch_flush(
     filler = log_record_factory(level=logging.INFO)
 
     handler.emit(record)
-    handler.emit(filler)  # fills buffer → flush
+    handler.emit(filler)
 
     assert len(threshold_event_recorder) == 1
     sender, event = threshold_event_recorder[0]
@@ -534,7 +534,7 @@ def test_buffered_handler_async_silently_discards_storage_error(log_record_facto
         handler, "_persist_batch", side_effect=ProgrammingError("no table")
     ):
         with patch.object(handler, "handleError") as mock_handle_error:
-            handler.flush()  # nothing in buffer yet — just confirm no crash
+            handler.flush()
 
     handler.close()
     mock_handle_error.assert_not_called()

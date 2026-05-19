@@ -156,8 +156,6 @@ class DatabaseHandler(Handler):
         lock_released = False
         is_owned: Any = getattr(self.lock, "_is_owned", None)
         if callable(is_owned) and is_owned():
-            # Handler.handle holds this lock around emit; release it while waiting so worker-thread logging can hit
-            # the thread-local recursion guard instead of blocking behind the caller.
             self.release()
             lock_released = True
         try:

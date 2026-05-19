@@ -16,8 +16,11 @@ class LogLevel(StrEnum):
     DEBUG = logging.getLevelName(level=logging.DEBUG)
     NOTSET = logging.getLevelName(level=logging.NOTSET)
 
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        return [(lv.value, lv.value) for lv in cls]
 
-# Levels that represent error conditions.
+
 ERROR_LEVELS: tuple[Literal[LogLevel.ERROR], Literal[LogLevel.CRITICAL]] = (
     LogLevel.ERROR,
     LogLevel.CRITICAL,
@@ -46,6 +49,10 @@ class RangeUnit(StrEnum):
 
     HOUR = "hour"
     DAY = "day"
+
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        return [(u.value, u.value) for u in cls]
 
 
 @dataclass(frozen=True, slots=True)

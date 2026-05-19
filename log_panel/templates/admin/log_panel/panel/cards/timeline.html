@@ -1,7 +1,7 @@
 <div class="timeline">
   {% for slot in row.timeline %}
     <a class="timeline-slot {{ slot.status }}"
-       href="?logger_name={{ row.logger_name }}&timestamp_from={{ slot.timestamp_from }}&timestamp_to={{ slot.timestamp_to }}">
+       href="?logger_name__exact={{ row.logger_name }}&timestamp__gte={{ slot.timestamp_from }}&timestamp__lt={{ slot.timestamp_to }}">
       <div class="timeline-tooltip">{{ slot.label }} — {{ slot.status }}</div>
     </a>
   {% endfor %}

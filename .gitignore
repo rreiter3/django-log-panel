@@ -15,3 +15,7 @@ htmlcov
 *.egg-info
 # Docs
 site
+# Test Django project
+example
+# Build artifacts
+build

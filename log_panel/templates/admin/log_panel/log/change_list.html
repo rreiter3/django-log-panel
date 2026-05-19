@@ -1,0 +1,7 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block content %}
+<p><a href="{% url 'admin:log_panel_log_changelist' %}">&laquo; {% trans "Back to dashboard" %}</a></p>
+{{ block.super }}
+{% endblock %}

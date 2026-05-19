@@ -4,11 +4,11 @@
 
 The admin UI is designed for browsing logger health first and raw entries second.
 
-- The landing page shows one card per logger.
+- The landing page shows one card per logger, paginated by `CARDS_PAGE_SIZE` (default 20).
 - Each card shows total errors, total warnings, recent issues from the last hour, and a timeline strip.
 - Available ranges come from `LOG_PANEL["RANGES"]`.
-- Clicking a logger opens a paginated table view.
-- The table view supports level filtering and free-text message search.
+- Clicking a logger or timeline slot opens the standard Django changelist filtered by logger name (and optional timestamp range).
+- The changelist uses Django's built-in search, pagination, and sidebar filters for level and logger name.
 - Timestamps are rendered in Django's configured default timezone.
 
 Admin URL:
@@ -16,6 +16,28 @@ Admin URL:
 ```text
 /admin/log_panel/log/
 ```
+
+## Pre-computed models
+
+Card counters and timeline data are maintained incrementally as logs are written, so the dashboard loads in constant time regardless of total log volume.
+
+| Model | Purpose |
+| --- | --- |
+| `Logger` | Normalised logger identity (unique name). |
+| `LogCard` | Per-logger totals, error/warning counts, and last-seen timestamp. |
+| `LogTimelineBucket` | Per-logger, per-hour and per-day log/error/warning counts for timeline slots. |
+
+All three models are routed to the same database as `Log` via `LogsRouter`.
+
+Timeline buckets are pre-computed at **hourly** and **daily** granularity. Custom `RANGES` always use one of these two units (`RangeUnit.HOUR` or `RangeUnit.DAY`), so all user-defined ranges are served from pre-computed data.
+
+The `rebuild_log_cards` management command recomputes all pre-computed rows from scratch:
+
+```bash
+python manage.py rebuild_log_cards
+```
+
+The `delete_old_logs` command calls `rebuild_log_cards` automatically after deleting old entries.
 
 ## Writing logs
 

@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime, tzinfo
 from typing import Any, cast
 
-from django.db import models
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Max, Q, QuerySet
 from django.db.models.functions import TruncDay, TruncHour
 from django.utils import timezone as django_timezone
 
-from log_panel.types import ERROR_LEVELS, LogFilters, LogLevel, RangeConfig, RangeUnit
+from log_panel.types import (
+    ERROR_LEVELS,
+    CardFilter,
+    LogFilters,
+    LogLevel,
+    RangeConfig,
+    RangeUnit,
+    SlotStatus,
+)
 
 
 def levels_at_or_above(min_level: str) -> list[str]:
@@ -30,7 +38,7 @@ def levels_at_or_above(min_level: str) -> list[str]:
     ]
 
 
-class LogQueryset:
+class LogQuery:
     """Chainable log filter accumulator evaluated against the active backend."""
 
     def __init__(self, backend, filters: LogFilters | None = None) -> None:
@@ -45,7 +53,7 @@ class LogQueryset:
         search: str | None = None,
         timestamp_from: datetime | None = None,
         timestamp_to: datetime | None = None,
-    ) -> LogQueryset:
+    ) -> LogQuery:
         """Further filter the logs by logger name, minimum level, message content, or timestamp range."""
         updated: LogFilters = replace(self._filters)
         if logger_names is not None:
@@ -58,7 +66,7 @@ class LogQueryset:
             updated.timestamp_from: datetime = timestamp_from
         if timestamp_to is not None:
             updated.timestamp_to: datetime = timestamp_to
-        return LogQueryset(backend=self._backend, filters=updated)
+        return LogQuery(backend=self._backend, filters=updated)
 
     def _tz(self):
         return django_timezone.get_default_timezone()
@@ -126,7 +134,7 @@ class LogQueryset:
         raise TypeError(f"indices must be integers or slices, not {type(key).__name__}")
 
 
-class LogQuerySet(models.QuerySet):
+class LogQuerySet(QuerySet):
     """Aggregation helpers for log analytics."""
 
     def count_threshold_matches(
@@ -230,3 +238,91 @@ class LogQuerySet(models.QuerySet):
             .with_has_error()
             .with_has_warning()
         )
+
+    def recent_aggregation(self, *, one_hour_ago: datetime) -> LogQuerySet:
+        """Return per-logger recent error/warning counts within the last hour."""
+        return (
+            cast(
+                "LogQuerySet",
+                self.filter(timestamp__gte=one_hour_ago).values("logger_name"),
+            )
+            .with_recent_errors(one_hour_ago=one_hour_ago)
+            .with_recent_warnings(one_hour_ago=one_hour_ago)
+        )
+
+    def aggregate_counts_by_logger(self) -> QuerySet:
+        """Per-logger totals, error/warning counts, and last-seen timestamp."""
+        return (
+            self.values("logger_name")
+            .annotate(
+                total=Count("id"),
+                total_errors=Count("id", filter=Q(level__in=ERROR_LEVELS)),
+                total_warnings=Count("id", filter=Q(level=LogLevel.WARNING)),
+                last_seen=Max("timestamp"),
+            )
+            .order_by("logger_name")
+        )
+
+    def timeline_aggregate(self, *, trunc_class: type) -> QuerySet:
+        """Per-logger per-bucket counts for rebuilding timeline buckets."""
+        return (
+            self.annotate(bucket=trunc_class("timestamp"))
+            .values("logger_name", "bucket")
+            .annotate(
+                log_count=Count("id"),
+                error_count=Count("id", filter=Q(level__in=ERROR_LEVELS)),
+                warning_count=Count("id", filter=Q(level=LogLevel.WARNING)),
+            )
+        )
+
+
+class LogCardQuerySet(QuerySet):
+    """QuerySet for the LogCard model."""
+
+    def for_card_filter(self, card_filter: str) -> LogCardQuerySet:
+        """Apply the card dashboard filter (errors, warnings, or all)."""
+        if card_filter == CardFilter.ERRORS:
+            return self.filter(total_errors__gt=0)  # pragma: no cover
+        if card_filter == CardFilter.WARNINGS:
+            return self.filter(total_warnings__gt=0)  # pragma: no cover
+        return self.all()
+
+
+class TimelineBucketQuerySet(QuerySet):
+    """QuerySet for the LogTimelineBucket model."""
+
+    def for_loggers(
+        self, logger_ids: list, unit: str, cutoff: datetime
+    ) -> TimelineBucketQuerySet:
+        """Filter to buckets for the given loggers, unit, and cutoff."""
+        return self.filter(
+            logger_id__in=logger_ids,
+            unit=unit,
+            bucket__gte=cutoff,
+        ).select_related("logger")
+
+    def to_status_map(
+        self,
+        *,
+        error_threshold: int = 1,
+        warning_threshold: int = 1,
+        app_timezone: tzinfo,
+    ) -> dict[str, dict[datetime, SlotStatus]]:
+        """Evaluate rows into a ``{logger_name: {bucket: SlotStatus}}`` mapping."""
+        from django.utils.timezone import is_naive, make_aware
+
+        result: dict[str, dict[datetime, SlotStatus]] = defaultdict(dict)
+        for row in self:
+            if row.error_count >= error_threshold:
+                status = SlotStatus.ERROR
+            elif row.warning_count >= warning_threshold:
+                status = SlotStatus.WARNING
+            elif row.log_count > 0:
+                status = SlotStatus.OK
+            else:
+                status = SlotStatus.EMPTY  # pragma: no cover
+            bucket = row.bucket
+            if is_naive(bucket):
+                bucket = make_aware(bucket, app_timezone)  # pragma: no cover
+            result[row.logger.name][bucket] = status
+        return dict(result)

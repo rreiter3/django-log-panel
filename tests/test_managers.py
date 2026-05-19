@@ -4,7 +4,7 @@ import pytest
 from django.test import override_settings
 
 from log_panel.backends.sql import OrmBackend
-from log_panel.managers import LogQueryset, LogReader
+from log_panel.managers import LogQuery, LogReader
 from log_panel.models import Log, LogMessageChunk
 from log_panel.querysets import levels_at_or_above
 
@@ -34,43 +34,41 @@ def test_levels_at_or_above_invalid_level_raises_value_error():
 
 
 def test_filter_returns_new_instance():
-    qs = LogQueryset(backend=None)
+    qs = LogQuery(backend=None)
     assert qs.filter(logger_names=["orders"]) is not qs
 
 
 def test_filter_does_not_mutate_original():
-    qs = LogQueryset(backend=None)
+    qs = LogQuery(backend=None)
     qs.filter(logger_names=["orders"])
     assert qs._filters.logger_names is None
 
 
 def test_filter_logger_names_stored():
-    qs = LogQueryset(backend=None).filter(logger_names=["orders", "machines"])
+    qs = LogQuery(backend=None).filter(logger_names=["orders", "machines"])
     assert qs._filters.logger_names == ["orders", "machines"]
 
 
 def test_filter_min_level_resolved_to_levels():
-    qs = LogQueryset(backend=None).filter(min_level="WARNING")
+    qs = LogQuery(backend=None).filter(min_level="WARNING")
     assert set(qs._filters.levels or []) == {"WARNING", "ERROR", "CRITICAL"}
 
 
 def test_filter_chaining_combines_constraints():
     qs = (
-        LogQueryset(backend=None)
-        .filter(logger_names=["orders"])
-        .filter(min_level="ERROR")
+        LogQuery(backend=None).filter(logger_names=["orders"]).filter(min_level="ERROR")
     )
     assert qs._filters.logger_names == ["orders"]
     assert set(qs._filters.levels or []) == {"ERROR", "CRITICAL"}
 
 
 def test_filter_later_call_replaces_logger_names():
-    qs = LogQueryset(backend=None).filter(logger_names=["a"]).filter(logger_names=["b"])
+    qs = LogQuery(backend=None).filter(logger_names=["a"]).filter(logger_names=["b"])
     assert qs._filters.logger_names == ["b"]
 
 
 def test_filter_later_call_replaces_min_level():
-    qs = LogQueryset(backend=None).filter(min_level="DEBUG").filter(min_level="ERROR")
+    qs = LogQuery(backend=None).filter(min_level="DEBUG").filter(min_level="ERROR")
     assert set(qs._filters.levels or []) == {"ERROR", "CRITICAL"}
 
 
@@ -78,7 +76,7 @@ def test_filter_timestamp_from_stored():
     from datetime import UTC, datetime
 
     ts = datetime(2024, 1, 1, tzinfo=UTC)
-    qs = LogQueryset(backend=None).filter(timestamp_from=ts)
+    qs = LogQuery(backend=None).filter(timestamp_from=ts)
     assert qs._filters.timestamp_from == ts
 
 
@@ -86,43 +84,43 @@ def test_filter_timestamp_to_stored():
     from datetime import UTC, datetime
 
     ts = datetime(2024, 12, 31, tzinfo=UTC)
-    qs = LogQueryset(backend=None).filter(timestamp_to=ts)
+    qs = LogQuery(backend=None).filter(timestamp_to=ts)
     assert qs._filters.timestamp_to == ts
 
 
 def test_getitem_negative_index_raises_value_error():
     with pytest.raises(ValueError, match="Negative indexing"):
-        LogQueryset(backend=None)[-1]
+        LogQuery(backend=None)[-1]
 
 
 def test_getitem_invalid_key_raises_type_error():
     with pytest.raises(TypeError):
-        LogQueryset(backend=None)["bad"]
+        LogQuery(backend=None)["bad"]
 
 
 @pytest.mark.django_db
 def test_getitem_out_of_range_raises_index_error():
     with pytest.raises(IndexError):
-        LogQueryset(OrmBackend())[100]
+        LogQuery(OrmBackend())[100]
 
 
 def test_len_returns_zero_when_backend_is_none():
-    assert len(LogQueryset(backend=None)) == 0
+    assert len(LogQuery(backend=None)) == 0
 
 
 def test_iter_returns_empty_when_backend_is_none():
-    assert list(LogQueryset(backend=None)) == []
+    assert list(LogQuery(backend=None)) == []
 
 
 def test_getitem_returns_empty_list_for_slice_when_backend_is_none():
-    assert LogQueryset(backend=None)[0:10] == []
+    assert LogQuery(backend=None)[0:10] == []
 
 
 @pytest.mark.django_db
 def test_len_returns_total_count(panel_factory):
     for _ in range(4):
         panel_factory()
-    assert len(LogQueryset(OrmBackend())) == 4
+    assert len(LogQuery(OrmBackend())) == 4
 
 
 @pytest.mark.django_db
@@ -130,23 +128,21 @@ def test_len_filters_by_logger_names(panel_factory):
     panel_factory(logger_name="orders")
     panel_factory(logger_name="machines")
     panel_factory(logger_name="auth")
-    assert (
-        len(LogQueryset(OrmBackend()).filter(logger_names=["orders", "machines"])) == 2
-    )
+    assert len(LogQuery(OrmBackend()).filter(logger_names=["orders", "machines"])) == 2
 
 
 @pytest.mark.django_db
 def test_len_filters_by_min_level(panel_factory):
     for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         panel_factory(level=level)
-    assert len(LogQueryset(OrmBackend()).filter(min_level="WARNING")) == 3
+    assert len(LogQuery(OrmBackend()).filter(min_level="WARNING")) == 3
 
 
 @pytest.mark.django_db
 def test_iter_returns_all_entries(panel_factory):
     for _ in range(3):
         panel_factory()
-    logs = list(LogQueryset(OrmBackend()))
+    logs = list(LogQuery(OrmBackend()))
     assert len(logs) == 3
 
 
@@ -155,7 +151,7 @@ def test_iter_filters_by_logger_names(panel_factory):
     panel_factory(logger_name="orders")
     panel_factory(logger_name="machines")
     panel_factory(logger_name="auth")
-    logs = list(LogQueryset(OrmBackend()).filter(logger_names=["orders", "machines"]))
+    logs = list(LogQuery(OrmBackend()).filter(logger_names=["orders", "machines"]))
     assert len(logs) == 2
     assert all(log["logger_name"] in {"orders", "machines"} for log in logs)
 
@@ -164,7 +160,7 @@ def test_iter_filters_by_logger_names(panel_factory):
 def test_iter_filters_by_min_level(panel_factory):
     for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         panel_factory(level=level)
-    logs = list(LogQueryset(OrmBackend()).filter(min_level="WARNING"))
+    logs = list(LogQuery(OrmBackend()).filter(min_level="WARNING"))
     assert len(logs) == 3
     assert all(log["level"] in {"WARNING", "ERROR", "CRITICAL"} for log in logs)
 
@@ -173,7 +169,7 @@ def test_iter_filters_by_min_level(panel_factory):
 def test_iter_filters_by_search(panel_factory):
     panel_factory(message="timeout connecting to database")
     panel_factory(message="user logged in")
-    logs = list(LogQueryset(OrmBackend()).filter(search="timeout"))
+    logs = list(LogQuery(OrmBackend()).filter(search="timeout"))
     assert len(logs) == 1
     assert "timeout" in logs[0]["message"]
 
@@ -182,7 +178,7 @@ def test_iter_filters_by_search(panel_factory):
 def test_getitem_slice_returns_correct_count(panel_factory):
     for _ in range(5):
         panel_factory()
-    result = LogQueryset(OrmBackend())[0:2]
+    result = LogQuery(OrmBackend())[0:2]
     assert len(result) == 2
 
 
@@ -190,20 +186,20 @@ def test_getitem_slice_returns_correct_count(panel_factory):
 def test_getitem_slice_offset_skips_entries(panel_factory):
     for _ in range(5):
         panel_factory()
-    all_logs = list(LogQueryset(OrmBackend()))
-    sliced = LogQueryset(OrmBackend())[2:4]
+    all_logs = list(LogQuery(OrmBackend()))
+    sliced = LogQuery(OrmBackend())[2:4]
     assert sliced == all_logs[2:4]
 
 
 @pytest.mark.django_db
 def test_getitem_int_returns_single_entry(panel_factory):
     panel_factory(message="only entry")
-    result = LogQueryset(OrmBackend())[0]
+    result = LogQuery(OrmBackend())[0]
     assert result["message"] == "only entry"
 
 
 def test_log_manager_get_queryset_returns_log_queryset():
-    assert isinstance(LogReader().get_queryset(), LogQueryset)
+    assert isinstance(LogReader().get_queryset(), LogQuery)
 
 
 def test_log_manager_subclass_applies_default_filters():

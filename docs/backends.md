@@ -208,16 +208,14 @@ from log_panel.backends.base import LogsBackend
 
 
 class MyBackend(LogsBackend):
-    def get_logger_cards(self, now_utc, range_config, app_timezone):
+    def get_logger_cards(self, now_utc, range_config, app_timezone, page=1, page_size=5, card_filter=""):
+        # Return (rows, total_cards) tuple
         ...
 
     def query_logs(self, logger_names, levels, search, offset, limit, app_timezone, **kwargs):
         ...
 
     def count_logs(self, logger_names, levels, search, **kwargs):
-        ...
-
-    def get_log_table(self, logger_name, level, search, page, page_size, app_timezone, **kwargs):
         ...
 ```
 

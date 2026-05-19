@@ -6,11 +6,10 @@ from django.contrib.admin import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.cache import cache
 from django.test import RequestFactory, override_settings
-from django.utils import timezone as django_timezone
 
 from log_panel import conf
 from log_panel.admin import LogAdmin
-from log_panel.filters import CardListFilter, TableListFilter
+from log_panel.filters import CardListFilter, LevelFilter, LoggerNameFilter
 from log_panel.models import Log, LogMessageChunk
 from log_panel.types import CardFilter, RangeConfig, RangeUnit
 
@@ -29,11 +28,9 @@ def factory():
 
 @pytest.fixture(autouse=True)
 def clear_cards_cache():
-    for range_key in ("24h", "30d", "90d", "1h"):
-        cache.delete(f"log_panel:cards:{range_key}")
+    cache.clear()
     yield
-    for range_key in ("24h", "30d", "90d", "1h"):
-        cache.delete(f"log_panel:cards:{range_key}")
+    cache.clear()
 
 
 def make_rows():
@@ -46,15 +43,16 @@ def make_rows():
     ]
 
 
-def make_backend(rows=None, logs=None, total=0):
+def make_backend(rows=None, total_cards=None):
     backend = MagicMock()
-    backend.get_logger_cards.return_value = rows or []
-    backend.get_log_table.return_value = (logs or [], total)
+    r = rows or []
+    tc = total_cards if total_cards is not None else len(r)
+    backend.get_logger_cards.return_value = (r, tc)
     return backend
 
 
 @pytest.mark.django_db
-def test_changelist_view_without_logger_name_renders_cards_view(panel_admin, factory):
+def test_changelist_view_without_params_renders_cards_view(panel_admin, factory):
     request = factory.get("/admin/log_panel/log/")
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
@@ -62,16 +60,61 @@ def test_changelist_view_without_logger_name_renders_cards_view(panel_admin, fac
 
 
 @pytest.mark.django_db
-def test_changelist_view_with_logger_name_renders_table_view(panel_admin, factory):
-    request = factory.get("/admin/log_panel/log/", {"logger_name": "myapp"})
+def test_changelist_view_with_cards_params_renders_cards_view(panel_admin, factory):
+    request = factory.get("/admin/log_panel/log/", {"range": "7d", "filter": "errors"})
     with patch("log_panel.admin.conf.get_backend", return_value=None):
         response = panel_admin.changelist_view(request)
-    assert response.context_data["view"] == "table"
+    assert response.context_data["view"] == "cards"
+
+
+def test_list_display_configured(panel_admin):
+    assert panel_admin.list_display == (
+        "timestamp",
+        "level",
+        "logger_name",
+        "module",
+        "short_message",
+    )
+
+
+def test_list_filter_configured(panel_admin):
+    assert panel_admin.list_filter == (LevelFilter, LoggerNameFilter)
+
+
+def test_search_fields_configured(panel_admin):
+    assert panel_admin.search_fields == ("message", "message_chunks__text")
+
+
+def test_ordering_configured(panel_admin):
+    assert panel_admin.ordering == ("-timestamp",)
+
+
+@pytest.mark.django_db
+def test_short_message_plain(panel_admin, panel_factory):
+    log = panel_factory(message="simple text", message_chunked=False)
+    assert panel_admin.short_message(log) == "simple text"
+
+
+@pytest.mark.django_db
+def test_short_message_chunked_contains_link(panel_admin, panel_factory):
+    log = panel_factory(
+        message="preview",
+        message_chunked=True,
+        message_size=5000,
+    )
+    with patch(
+        "log_panel.admin.reverse",
+        return_value=f"/admin/log_panel/log/{log.pk}/message/",
+    ):
+        result = panel_admin.short_message(log)
+    assert "preview" in result
+    assert "full message" in result
+    assert "5000 chars" in result
+    assert str(log.pk) in result
 
 
 def test_get_urls_includes_message_view(panel_admin):
     urls = panel_admin.get_urls()
-
     assert any(url.name == "log_panel_log_message" for url in urls)
 
 
@@ -168,15 +211,15 @@ def test_logger_cards_context_uses_cache_when_timeout_configured(panel_admin, fa
         return conf.DEFAULTS[key]
 
     with patch("log_panel.admin.conf.get_setting", side_effect=get_setting):
-        with patch("log_panel.admin.cache.get_or_set") as mock_get_or_set:
-            mock_get_or_set.return_value = [{"logger_name": "cached"}]
+        with patch("log_panel.admin.cache.get") as mock_get:
+            mock_get.return_value = ([{"logger_name": "cached"}], 1)
             ctx = panel_admin._logger_cards_context(
                 request, backend=backend, error=None
             )
 
     assert ctx["logger_rows"] == [{"logger_name": "cached"}]
     backend.get_logger_cards.assert_not_called()
-    mock_get_or_set.assert_called_once()
+    mock_get.assert_called_once()
 
 
 def test_logger_cards_context_bypasses_cache_when_timeout_is_none(panel_admin, factory):
@@ -189,14 +232,14 @@ def test_logger_cards_context_bypasses_cache_when_timeout_is_none(panel_admin, f
         return conf.DEFAULTS[key]
 
     with patch("log_panel.admin.conf.get_setting", side_effect=get_setting):
-        with patch("log_panel.admin.cache.get_or_set") as mock_get_or_set:
+        with patch("log_panel.admin.cache.get") as mock_get:
             ctx = panel_admin._logger_cards_context(
                 request, backend=backend, error=None
             )
 
     assert ctx["logger_rows"] == [{"logger_name": "myapp"}]
     backend.get_logger_cards.assert_called_once()
-    mock_get_or_set.assert_not_called()
+    mock_get.assert_not_called()
 
 
 def test_logger_cards_context_backend_exception_sets_error(panel_admin, factory):
@@ -208,135 +251,39 @@ def test_logger_cards_context_backend_exception_sets_error(panel_admin, factory)
     assert "connection failed" in ctx["error"]
 
 
-def test_log_table_context_defaults_page_to_1(panel_admin, factory):
+def test_logger_cards_context_includes_level_colors(panel_admin, factory):
     request = factory.get("/")
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert ctx["page"] == 1
+    ctx = panel_admin._logger_cards_context(request, None, None)
+    assert "level_colors" in ctx
+    assert "ERROR" in ctx["level_colors"]
 
 
-def test_log_table_context_invalid_page_string_defaults_to_1(panel_admin, factory):
-    request = factory.get("/", {"page": "abc"})
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert ctx["page"] == 1
-
-
-def test_log_table_context_page_zero_clamped_to_1(panel_admin, factory):
-    request = factory.get("/", {"page": "0"})
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert ctx["page"] == 1
-
-
-def test_log_table_context_valid_page_number_used(panel_admin, factory):
-    request = factory.get("/", {"page": "3"})
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert ctx["page"] == 3
-
-
-def test_log_table_context_total_pages_rounds_up(panel_admin, factory):
-    backend = make_backend(total=11)
+@override_settings(LOG_PANEL={"LEVEL_COLORS": {"ERROR": "#ff0000"}})
+def test_logger_cards_context_reflects_custom_level_colors(panel_admin, factory):
     request = factory.get("/")
-    with patch("log_panel.admin.conf.get_setting", return_value=5):
-        ctx = panel_admin._log_table_context(request, backend, "myapp", None)
-    assert ctx["total_pages"] == 3
+    ctx = panel_admin._logger_cards_context(request, None, None)
+    assert ctx["level_colors"]["ERROR"] == "#ff0000"
+    assert ctx["level_colors"]["WARNING"] == "#c0a000"
 
 
-def test_log_table_context_total_pages_minimum_1_when_empty(panel_admin, factory):
-    request = factory.get("/")
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert ctx["total_pages"] == 1
+def test_cards_context_selected_filter_in_context(panel_admin, factory):
+    request = factory.get("/", {"filter": "errors"})
+    ctx = panel_admin._logger_cards_context(request, None, None)
+    assert ctx["selected_filter"] is CardFilter.ERRORS
 
 
-def test_log_table_context_has_prev_false_on_first_page(panel_admin, factory):
-    backend = make_backend(total=20)
-    request = factory.get("/", {"page": "1"})
-    ctx = panel_admin._log_table_context(request, backend, "myapp", None)
-    assert ctx["has_prev"] is False
-
-
-def test_log_table_context_has_next_false_on_last_page(panel_admin, factory):
-    backend = make_backend(total=5)
-    request = factory.get("/", {"page": "1"})
-    ctx = panel_admin._log_table_context(request, backend, "myapp", None)
-    assert ctx["has_next"] is False
-
-
-def test_log_table_context_has_prev_and_has_next_on_middle_page(panel_admin, factory):
-    backend = make_backend(total=30)
-    request = factory.get("/", {"page": "2"})
-    ctx = panel_admin._log_table_context(request, backend, "myapp", None)
-    assert ctx["has_prev"] is True
-    assert ctx["has_next"] is True
-
-
-def test_log_table_context_no_backend_returns_empty_logs(panel_admin, factory):
-    request = factory.get("/")
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert ctx["logs"] == []
-    assert ctx["total"] == 0
-    assert ctx["error"] is None
-
-
-def test_log_table_context_backend_exception_sets_error(panel_admin, factory):
-    backend = MagicMock()
-    backend.get_log_table.side_effect = RuntimeError("query failed")
-    request = factory.get("/")
-    ctx = panel_admin._log_table_context(request, backend, "myapp", None)
-    assert ctx["logs"] == []
-    assert "query failed" in ctx["error"]
-
-
-def test_log_table_context_passes_filters_to_backend(panel_admin, factory):
-    backend = make_backend()
-    request = factory.get("/", {"level": "ERROR", "search": "db"})
-    panel_admin._log_table_context(request, backend, "myapp", None)
-    _, kwargs = backend.get_log_table.call_args
-    assert kwargs["level"] == "ERROR"
-    assert kwargs["search"] == "db"
-    assert kwargs["logger_name"] == "myapp"
-
-
-def test_log_table_context_passes_timestamp_params_to_backend(panel_admin, factory):
-    backend = make_backend()
-    request = factory.get(
-        "/",
-        {"timestamp_from": "2024-06-15T10:00", "timestamp_to": "2024-06-15T14:00"},
+def test_cards_context_filter_applied_to_rows(panel_admin, factory):
+    backend = make_backend(
+        rows=[
+            {"logger_name": "app.err", "total_errors": 5, "total_warnings": 0},
+            {"logger_name": "app.both", "total_errors": 2, "total_warnings": 1},
+        ]
     )
-    panel_admin._log_table_context(request, backend, "myapp", None)
-    _, kwargs = backend.get_log_table.call_args
-    assert kwargs["timestamp_from"] is not None
-    assert kwargs["timestamp_to"] is not None
-    assert kwargs["timestamp_from"].hour == 10
-    assert kwargs["timestamp_to"].hour == 14
-
-
-def test_log_table_context_timestamp_strings_included_in_context(panel_admin, factory):
-    backend = make_backend()
-    request = factory.get(
-        "/",
-        {"timestamp_from": "2024-06-15T10:00", "timestamp_to": "2024-06-15T14:00"},
-    )
-    ctx = panel_admin._log_table_context(request, backend, "myapp", None)
-    assert ctx["timestamp_from"] == "2024-06-15T10:00"
-    assert ctx["timestamp_to"] == "2024-06-15T14:00"
-
-
-def test_log_table_context_invalid_timestamp_passes_none_to_backend(
-    panel_admin, factory
-):
-    backend = make_backend()
-    request = factory.get("/", {"timestamp_from": "not-a-date"})
-    panel_admin._log_table_context(request, backend, "myapp", None)
-    _, kwargs = backend.get_log_table.call_args
-    assert kwargs["timestamp_from"] is None
-
-
-def test_log_table_context_empty_timestamps_pass_none_to_backend(panel_admin, factory):
-    backend = make_backend()
-    request = factory.get("/")
-    panel_admin._log_table_context(request, backend, "myapp", None)
-    _, kwargs = backend.get_log_table.call_args
-    assert kwargs["timestamp_from"] is None
-    assert kwargs["timestamp_to"] is None
+    request = factory.get("/", {"filter": "errors"})
+    ctx = panel_admin._logger_cards_context(request, backend, None)
+    _, kwargs = backend.get_logger_cards.call_args
+    assert kwargs["card_filter"] is CardFilter.ERRORS
+    assert {r["logger_name"] for r in ctx["logger_rows"]} == {"app.err", "app.both"}
 
 
 def test_has_view_permission_allows_active_staff_by_default(panel_admin, factory):
@@ -373,35 +320,6 @@ def test_has_view_permission_callback_can_deny(panel_admin, factory):
     request.user = MagicMock(is_active=True, is_staff=True)
     with override_settings(LOG_PANEL={"PERMISSION_CALLBACK": "tests.helpers.deny_all"}):
         assert panel_admin.has_view_permission(request) is False
-
-
-def test_logger_cards_context_includes_level_colors(panel_admin, factory):
-    request = factory.get("/")
-    ctx = panel_admin._logger_cards_context(request, None, None)
-    assert "level_colors" in ctx
-    assert "ERROR" in ctx["level_colors"]
-
-
-def test_log_table_context_includes_level_colors(panel_admin, factory):
-    request = factory.get("/")
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert "level_colors" in ctx
-    assert "ERROR" in ctx["level_colors"]
-
-
-@override_settings(LOG_PANEL={"LEVEL_COLORS": {"ERROR": "#ff0000"}})
-def test_logger_cards_context_reflects_custom_level_colors(panel_admin, factory):
-    request = factory.get("/")
-    ctx = panel_admin._logger_cards_context(request, None, None)
-    assert ctx["level_colors"]["ERROR"] == "#ff0000"
-    assert ctx["level_colors"]["WARNING"] == "#c0a000"
-
-
-@override_settings(LOG_PANEL={"LEVEL_COLORS": {"MY_AUDIT": "#0055aa"}})
-def test_log_table_context_level_colors_includes_custom_level(panel_admin, factory):
-    request = factory.get("/")
-    ctx = panel_admin._log_table_context(request, None, "myapp", None)
-    assert "MY_AUDIT" in ctx["level_colors"]
 
 
 def test_card_list_filter_defaults_to_all(factory):
@@ -455,86 +373,3 @@ def test_card_list_filter_apply_warnings_keeps_only_warning_rows(factory):
     result = f.apply(make_rows())
     assert all(r["total_warnings"] > 0 for r in result)
     assert {r["logger_name"] for r in result} == {"app.warn", "app.both"}
-
-
-def test_cards_context_selected_filter_in_context(panel_admin, factory):
-    request = factory.get("/", {"filter": "errors"})
-    ctx = panel_admin._logger_cards_context(request, None, None)
-    assert ctx["selected_filter"] is CardFilter.ERRORS
-
-
-def test_cards_context_filter_applied_to_rows(panel_admin, factory):
-    backend = make_backend(rows=make_rows())
-    request = factory.get("/", {"filter": "errors"})
-    ctx = panel_admin._logger_cards_context(request, backend, None)
-    assert all(r["total_errors"] > 0 for r in ctx["logger_rows"])
-    assert {r["logger_name"] for r in ctx["logger_rows"]} == {"app.err", "app.both"}
-
-
-def test_table_list_filter_defaults(factory):
-    request = factory.get("/")
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.level == ""
-    assert f.search == ""
-    assert f.page == 1
-    assert f.timestamp_from is None
-    assert f.timestamp_to is None
-
-
-def test_table_list_filter_reads_level_and_search(factory):
-    request = factory.get("/", {"level": "ERROR", "search": "db"})
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.level == "ERROR"
-    assert f.search == "db"
-
-
-def test_table_list_filter_valid_page(factory):
-    request = factory.get("/", {"page": "3"})
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.page == 3
-
-
-def test_table_list_filter_invalid_page_defaults_to_1(factory):
-    request = factory.get("/", {"page": "abc"})
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.page == 1
-
-
-def test_table_list_filter_page_zero_clamped_to_1(factory):
-    request = factory.get("/", {"page": "0"})
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.page == 1
-
-
-def test_table_list_filter_parses_timestamps(factory):
-    request = factory.get(
-        "/",
-        {"timestamp_from": "2024-06-15T10:00", "timestamp_to": "2024-06-15T14:00"},
-    )
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.timestamp_from is not None
-    assert f.timestamp_to is not None
-    assert f.timestamp_from.hour == 10
-    assert f.timestamp_to.hour == 14
-    assert f.timestamp_from_str == "2024-06-15T10:00"
-    assert f.timestamp_to_str == "2024-06-15T14:00"
-
-
-@override_settings(USE_TZ=False)
-def test_table_list_filter_parses_naive_timestamps_when_use_tz_false(factory):
-    request = factory.get("/", {"timestamp_from": "2024-06-15T10:00"})
-
-    f = TableListFilter(request, app_timezone=_get_tz())
-
-    assert f.timestamp_from is not None
-    assert f.timestamp_from.tzinfo is None
-
-
-def test_table_list_filter_invalid_timestamp_returns_none(factory):
-    request = factory.get("/", {"timestamp_from": "not-a-date"})
-    f = TableListFilter(request, app_timezone=_get_tz())
-    assert f.timestamp_from is None
-
-
-def _get_tz():
-    return django_timezone.get_default_timezone()

@@ -10,4 +10,16 @@
     {% empty %}
         <p>{% trans "No log entries in the database yet." %}</p>
     {% endfor %}
+
+    {% if total_card_pages > 1 %}
+    <div class="log-pagination" style="margin-top:1em;">
+      {% if has_prev_cards %}
+        <a href="?range={{ selected_range }}&filter={{ selected_filter }}&cards_page={{ cards_page|add:'-1' }}">&laquo; {% trans "Previous" %}</a>
+      {% endif %}
+      <span>{% blocktrans with page=cards_page total=total_card_pages %}Page {{ page }} of {{ total }}{% endblocktrans %}</span>
+      {% if has_next_cards %}
+        <a href="?range={{ selected_range }}&filter={{ selected_filter }}&cards_page={{ cards_page|add:'1' }}">{% trans "Next" %} &raquo;</a>
+      {% endif %}
+    </div>
+    {% endif %}
 {% endblock %}

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.db.models import QuerySet
 
@@ -63,3 +64,5 @@ class Command(BaseCommand):
                 f"Deleted {deleted_total} log entries older than {retention_days} days."
             )
         )
+
+        call_command(command_name="rebuild_log_cards", stdout=self.stdout)

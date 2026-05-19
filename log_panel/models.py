@@ -4,7 +4,8 @@ from typing import TYPE_CHECKING, Protocol
 from django.db import models
 from django.db.models.indexes import Index
 
-from log_panel.managers import LogRecordManager
+from log_panel.managers import LogCardManager, LogRecordManager, TimelineBucketManager
+from log_panel.types import RangeUnit
 
 if TYPE_CHECKING:
     from django.db.models.query import QuerySet
@@ -80,3 +81,70 @@ class LogMessageChunk(models.Model):
         indexes: list[Index] = [
             models.Index(fields=("log", "index"), name="log_message_chunk_order"),
         ]
+
+
+class Logger(models.Model):
+    """Represents a logger."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200, unique=True)
+
+    class Meta:
+        db_table = "log_panel_logger"
+
+    def __str__(self) -> str:  # pragma: no cover
+        return self.name
+
+
+class LogCard(models.Model):
+    """Pre-computed per-logger counters for the cards dashboard."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    logger = models.OneToOneField(Logger, on_delete=models.CASCADE, related_name="card")
+    total = models.PositiveBigIntegerField(default=0)
+    total_errors = models.PositiveBigIntegerField(default=0)
+    total_warnings = models.PositiveBigIntegerField(default=0)
+    last_seen = models.DateTimeField(null=True, blank=True)
+
+    objects = LogCardManager()
+
+    class Meta:
+        db_table = "log_panel_log_card"
+        ordering = ["-last_seen"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"LogCard({self.logger})"
+
+
+class LogTimelineBucket(models.Model):
+    """Pre-computed log/error/warning counts for a single time bucket."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    logger = models.ForeignKey(
+        Logger, on_delete=models.CASCADE, related_name="timeline_buckets"
+    )
+    bucket = models.DateTimeField()
+    unit = models.CharField(max_length=4, choices=RangeUnit.choices())
+    log_count = models.PositiveIntegerField(default=0)
+    error_count = models.PositiveIntegerField(default=0)
+    warning_count = models.PositiveIntegerField(default=0)
+
+    objects = TimelineBucketManager()
+
+    class Meta:
+        db_table = "log_panel_log_timeline_bucket"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("logger", "bucket", "unit"),
+                name="unique_timeline_bucket",
+            )
+        ]
+        indexes: list[Index] = [
+            models.Index(
+                fields=("logger", "unit", "bucket"),
+                name="timeline_logger_unit_bucket",
+            ),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"TimelineBucket({self.logger}, {self.unit}, {self.bucket})"

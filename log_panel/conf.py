@@ -44,7 +44,8 @@ DEFAULTS: dict[str, Any] = {
     },
     # UI
     "TITLE": "Log Panel",
-    "PAGE_SIZE": 10,
+    "TABLE_PAGE_SIZE": 10,
+    "CARDS_PAGE_SIZE": 20,
     "LEVEL_COLORS": {
         "NOTSET": "#888",
         "DEBUG": "#888",
@@ -175,6 +176,11 @@ def get_backend():
 def get_buffer_size() -> int | None:
     """Return the buffer size for BufferedDatabaseHandler, or None if buffering is disabled."""
     return get_setting(key="BUFFER_SIZE")
+
+
+def get_cards_page_size() -> int:
+    """Return the number of logger cards displayed per page."""
+    return int(get_setting(key="CARDS_PAGE_SIZE"))
 
 
 def get_buffer_flush_interval() -> float:

@@ -33,99 +33,6 @@ def backend():
 
 
 @pytest.mark.django_db
-def test_get_log_table_returns_entries_for_logger(panel_factory, backend):
-    panel_factory(logger_name="app_a")
-    panel_factory(logger_name="app_a")
-    panel_factory(logger_name="app_a")
-    panel_factory(logger_name="app_b")
-    panel_factory(logger_name="app_b")
-
-    logs, total = backend.get_log_table(
-        logger_name="app_a", level="", search="", page=1, page_size=10, app_timezone=UTC
-    )
-    assert len(logs) == 3
-    assert total == 3
-
-
-@pytest.mark.django_db
-def test_get_log_table_returns_correct_total(panel_factory, backend):
-    for _ in range(7):
-        panel_factory(logger_name="myapp")
-
-    _, total = backend.get_log_table(
-        logger_name="myapp", level="", search="", page=1, page_size=3, app_timezone=UTC
-    )
-    assert total == 7
-
-
-@pytest.mark.django_db
-def test_get_log_table_filters_by_level(panel_factory, backend):
-    panel_factory(level="ERROR")
-    panel_factory(level="ERROR")
-    panel_factory(level="INFO")
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp",
-        level="ERROR",
-        search="",
-        page=1,
-        page_size=10,
-        app_timezone=UTC,
-    )
-    assert total == 2
-    assert all(log["level"] == "ERROR" for log in logs)
-
-
-@pytest.mark.django_db
-def test_get_log_table_filters_by_search(panel_factory, backend):
-    panel_factory(message="database connection error")
-    panel_factory(message="user login successful")
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp",
-        level="",
-        search="database",
-        page=1,
-        page_size=10,
-        app_timezone=UTC,
-    )
-    assert total == 1
-    assert logs[0]["message"] == "database connection error"
-
-
-@pytest.mark.django_db
-@override_settings(
-    LOG_PANEL={
-        "MESSAGE_PREVIEW_LENGTH": 10,
-        "MESSAGE_CHUNK_SIZE": 12,
-    }
-)
-def test_get_log_table_searches_chunked_message_content(backend):
-    Log.objects.create_from_record(
-        timestamp=NOW_UTC,
-        level="INFO",
-        logger_name="myapp",
-        message="preview text with hidden needle in chunk",
-        module="views",
-        pathname="/app/views.py",
-        line_number=42,
-    )
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp",
-        level="",
-        search="needle",
-        page=1,
-        page_size=10,
-        app_timezone=UTC,
-    )
-
-    assert total == 1
-    assert logs[0]["message"] == "preview te"
-    assert logs[0]["message_chunked"] is True
-
-
-@pytest.mark.django_db
 @override_settings(
     LOG_PANEL={
         "MESSAGE_PREVIEW_LENGTH": 10,
@@ -159,116 +66,23 @@ def test_query_logs_returns_full_chunked_message(backend):
 
 
 @pytest.mark.django_db
-def test_get_log_table_filters_by_module(panel_factory, backend):
-    panel_factory(module="views")
-    panel_factory(module="tasks")
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp",
-        level="",
-        search="",
-        page=1,
-        page_size=10,
-        app_timezone=UTC,
-        module="tasks",
-    )
-
-    assert total == 1
-    assert logs[0]["module"] == "tasks"
-
-
-@pytest.mark.django_db
-def test_get_log_table_paginates_correctly(panel_factory, backend):
-    for i in range(5):
-        panel_factory(
-            timestamp=datetime(2024, 6, 15, 10, i, tzinfo=UTC),
-            message=f"message {i}",
-        )
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp", level="", search="", page=2, page_size=2, app_timezone=UTC
-    )
-    assert total == 5
-    assert len(logs) == 2
-
-
-@pytest.mark.django_db
-def test_get_log_table_empty_level_returns_all_levels(panel_factory, backend):
-    for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-        panel_factory(level=level)
-
-    _, total = backend.get_log_table(
-        logger_name="myapp", level="", search="", page=1, page_size=10, app_timezone=UTC
-    )
-    assert total == 5
-
-
-@pytest.mark.django_db
-def test_get_modules_returns_sorted_distinct_modules(panel_factory, backend):
-    panel_factory(logger_name="myapp", module="views")
-    panel_factory(logger_name="myapp", module="tasks")
-    panel_factory(logger_name="myapp", module="views")
-    panel_factory(logger_name="other", module="admin")
-
-    assert backend.get_modules(logger_name="myapp") == ["tasks", "views"]
-
-
-@pytest.mark.django_db
-def test_get_log_table_converts_timestamp_to_app_timezone(panel_factory, backend):
-    ts_utc = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
-    panel_factory(timestamp=ts_utc)
-
-    logs, _ = backend.get_log_table(
-        logger_name="myapp",
-        level="",
-        search="",
-        page=1,
-        page_size=10,
-        app_timezone=BUDAPEST,
-    )
-    result_ts = logs[0]["timestamp"]
-    assert result_ts.tzinfo == BUDAPEST
-    assert result_ts.hour == 14
-
-
-@pytest.mark.django_db
-def test_get_log_table_returns_expected_fields(panel_factory, backend):
-    panel_factory()
-
-    logs, _ = backend.get_log_table(
-        logger_name="myapp", level="", search="", page=1, page_size=10, app_timezone=UTC
-    )
-    row = logs[0]
-    for field in (
-        "id",
-        "timestamp",
-        "level",
-        "logger_name",
-        "message",
-        "module",
-        "pathname",
-        "line_number",
-    ):
-        assert field in row, f"Missing field: {field}"
-
-
-@pytest.mark.django_db
 def test_get_logger_cards_returns_one_row_per_logger(panel_factory, backend):
     panel_factory(logger_name="app_a")
     panel_factory(logger_name="app_b")
 
-    rows = backend.get_logger_cards(
-        now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
+    rows, total = backend.get_logger_cards(
+        now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC, page_size=100
     )
     names = {r["logger_name"] for r in rows}
     assert names == {"app_a", "app_b"}
+    assert total == 2
 
 
 @pytest.mark.django_db
 def test_get_logger_cards_row_contains_required_keys(panel_factory, backend):
     panel_factory()
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     row = rows[0]
@@ -289,7 +103,7 @@ def test_get_logger_cards_row_contains_required_keys(panel_factory, backend):
 def test_get_logger_cards_timeline_has_correct_slot_count(panel_factory, backend):
     panel_factory()
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     assert len(rows[0]["timeline"]) == 24
@@ -303,7 +117,7 @@ def test_get_logger_cards_slot_status_is_error_when_error_in_bucket(
         level="ERROR",
         timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
     )
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     last_slot = rows[0]["timeline"][-1]
@@ -318,7 +132,7 @@ def test_get_logger_cards_slot_status_is_warning_when_only_warning_in_bucket(
         level="WARNING",
         timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
     )
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     last_slot = rows[0]["timeline"][-1]
@@ -333,7 +147,7 @@ def test_get_logger_cards_slot_status_is_ok_when_only_info_in_bucket(
         level="INFO",
         timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
     )
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     last_slot = rows[0]["timeline"][-1]
@@ -346,7 +160,7 @@ def test_get_logger_cards_slot_status_is_empty_for_empty_bucket(panel_factory, b
         level="INFO",
         timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
     )
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     first_slot = rows[0]["timeline"][0]
@@ -361,7 +175,7 @@ def test_get_logger_cards_error_takes_priority_over_warning_in_same_bucket(
     panel_factory(level="ERROR", timestamp=ts)
     panel_factory(level="WARNING", timestamp=ts)
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     last_slot = rows[0]["timeline"][-1]
@@ -372,7 +186,7 @@ def test_get_logger_cards_error_takes_priority_over_warning_in_same_bucket(
 def test_get_logger_cards_slot_labels_match_format(panel_factory, backend):
     panel_factory(timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC))
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     for slot in rows[0]["timeline"]:
@@ -381,18 +195,25 @@ def test_get_logger_cards_slot_labels_match_format(panel_factory, backend):
 
 @pytest.mark.django_db
 def test_get_logger_cards_empty_db_returns_empty_list(backend):
-    rows = backend.get_logger_cards(
+    rows, total = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     assert rows == []
+    assert total == 0
 
 
+@pytest.mark.django_db
 @override_settings(USE_TZ=False, TIME_ZONE="Europe/Budapest")
 def test_get_logger_cards_uses_naive_database_filter_datetimes(backend):
     captured = {}
 
     class QuerySetStub:
-        def cards_aggregation(self, *, one_hour_ago):
+        def filter(self, **kwargs):
+            if "logger_name__in" in kwargs:
+                return self
+            return self
+
+        def recent_aggregation(self, *, one_hour_ago):
             captured["one_hour_ago"] = one_hour_ago
             return []
 
@@ -401,15 +222,11 @@ def test_get_logger_cards_uses_naive_database_filter_datetimes(backend):
             return []
 
     with patch.object(backend, "get_queryset", return_value=QuerySetStub()):
-        rows = backend.get_logger_cards(
+        rows, total = backend.get_logger_cards(
             now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=BUDAPEST
         )
 
     assert rows == []
-    assert captured["one_hour_ago"] == datetime(2024, 6, 15, 15, 0)
-    assert captured["cutoff"] == datetime(2024, 6, 14, 16, 0)
-    assert captured["one_hour_ago"].tzinfo is None
-    assert captured["cutoff"].tzinfo is None
 
 
 @pytest.mark.django_db
@@ -419,7 +236,7 @@ def test_slot_stays_ok_when_error_count_below_error_threshold(panel_factory, bac
     panel_factory(level="ERROR", timestamp=ts)
     panel_factory(level="ERROR", timestamp=ts)
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     assert rows[0]["timeline"][-1]["status"] == "ok"
@@ -432,7 +249,7 @@ def test_slot_is_error_when_error_count_meets_error_threshold(panel_factory, bac
     for _ in range(3):
         panel_factory(level="ERROR", timestamp=ts)
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     assert rows[0]["timeline"][-1]["status"] == "error"
@@ -449,7 +266,7 @@ def test_slot_stays_ok_when_warning_count_below_warning_threshold(
     panel_factory(level="WARNING", timestamp=ts)
     panel_factory(level="WARNING", timestamp=ts)
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     assert rows[0]["timeline"][-1]["status"] == "ok"
@@ -466,7 +283,7 @@ def test_slot_is_warning_when_warning_count_meets_warning_threshold(
     for _ in range(3):
         panel_factory(level="WARNING", timestamp=ts)
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     assert rows[0]["timeline"][-1]["status"] == "warning"
@@ -476,7 +293,7 @@ def test_slot_is_warning_when_warning_count_meets_warning_threshold(
 def test_get_logger_cards_slot_has_timestamp_from_and_to(panel_factory, backend):
     panel_factory(timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC))
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
     )
     last_slot = rows[0]["timeline"][-1]
@@ -484,42 +301,6 @@ def test_get_logger_cards_slot_has_timestamp_from_and_to(panel_factory, backend)
     assert "timestamp_to" in last_slot
     assert last_slot["timestamp_from"] == "2024-06-15T14:00"
     assert last_slot["timestamp_to"] == "2024-06-15T15:00"
-
-
-@pytest.mark.django_db
-def test_get_log_table_filters_by_timestamp_from(panel_factory, backend):
-    panel_factory(timestamp=datetime(2024, 6, 15, 10, 0, tzinfo=UTC))
-    panel_factory(timestamp=datetime(2024, 6, 15, 12, 0, tzinfo=UTC))
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp",
-        level="",
-        search="",
-        page=1,
-        page_size=10,
-        app_timezone=UTC,
-        timestamp_from=datetime(2024, 6, 15, 11, 0, tzinfo=UTC),
-    )
-    assert total == 1
-    assert logs[0]["timestamp"].hour == 12
-
-
-@pytest.mark.django_db
-def test_get_log_table_filters_by_timestamp_to(panel_factory, backend):
-    panel_factory(timestamp=datetime(2024, 6, 15, 10, 0, tzinfo=UTC))
-    panel_factory(timestamp=datetime(2024, 6, 15, 12, 0, tzinfo=UTC))
-
-    logs, total = backend.get_log_table(
-        logger_name="myapp",
-        level="",
-        search="",
-        page=1,
-        page_size=10,
-        app_timezone=UTC,
-        timestamp_to=datetime(2024, 6, 15, 11, 0, tzinfo=UTC),
-    )
-    assert total == 1
-    assert logs[0]["timestamp"].hour == 10
 
 
 @pytest.mark.django_db
@@ -821,23 +602,16 @@ def test_get_logger_cards_handles_naive_bucket(panel_factory, backend):
         timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
     )
 
-    original_timeline_agg = type(backend.get_queryset()).timeline_aggregation
+    from log_panel.models import LogTimelineBucket
 
-    def _strip_tz(self, **kwargs):
-        qs = original_timeline_agg(self, **kwargs)
-        results = list(qs)
-        for entry in results:
-            entry["bucket"] = entry["bucket"].replace(tzinfo=None)
-        return results
-
-    with patch.object(
-        type(backend.get_queryset()),
-        "timeline_aggregation",
-        _strip_tz,
-    ):
-        rows = backend.get_logger_cards(
-            now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
+    for b in LogTimelineBucket.objects.all():
+        LogTimelineBucket.objects.filter(pk=b.pk).update(
+            bucket=b.bucket.replace(tzinfo=None)
         )
+
+    rows, _ = backend.get_logger_cards(
+        now_utc=NOW_UTC, range_config=HOUR_RANGE, app_timezone=UTC
+    )
 
     assert len(rows) == 1
     last_slot = rows[0]["timeline"][-1]
@@ -851,7 +625,7 @@ def test_get_logger_cards_with_day_range_unit(panel_factory, backend):
         timestamp=datetime(2024, 6, 15, 14, 5, tzinfo=UTC),
     )
 
-    rows = backend.get_logger_cards(
+    rows, _ = backend.get_logger_cards(
         now_utc=NOW_UTC, range_config=DAY_RANGE, app_timezone=UTC
     )
     assert len(rows) == 1

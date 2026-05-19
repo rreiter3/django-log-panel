@@ -1,16 +1,25 @@
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, tzinfo
 
-from log_panel.types import LogLevel, RangeConfig, RangeUnit
+from log_panel.types import RangeConfig, RangeUnit
 
 
 class LogsBackend(ABC):
     @abstractmethod
     def get_logger_cards(
-        self, now_utc: datetime, range_config: RangeConfig, app_timezone: tzinfo
-    ) -> list[dict]:
+        self,
+        now_utc: datetime,
+        range_config: RangeConfig,
+        app_timezone: tzinfo,
+        page: int = 1,
+        page_size: int = 5,
+        card_filter: str = "",
+    ) -> tuple[list[dict], int]:
         """
         Return per-logger aggregation rows for the cards view.
+
+        Returns a tuple of (rows, total_cards) where rows is a page of cards
+        and total_cards is the total number of matching cards (for pagination).
 
         Each row must contain:
         {
@@ -61,31 +70,6 @@ class LogsBackend(ABC):
         timestamp_to: datetime | None = None,
     ) -> int:
         """Return the total number of log entries matching the given filters."""
-
-    @abstractmethod
-    def get_modules(self, logger_name: str) -> list[str]:
-        """Return a sorted list of distinct module names for the given logger."""
-
-    @abstractmethod
-    def get_log_table(
-        self,
-        logger_name: str,
-        level: "LogLevel | str",
-        search: str,
-        page: int,
-        page_size: int,
-        app_timezone: tzinfo,
-        timestamp_from: datetime | None = None,
-        timestamp_to: datetime | None = None,
-        module: str = "",
-    ) -> tuple[list[dict], int]:
-        """
-        Return (log_entries, total_count) for the table view.
-
-        Each entry must contain at least:
-        { 'timestamp': datetime (tz-aware, app timezone), 'level': str,
-          'module': str, 'message': str }
-        """
 
     @staticmethod
     def get_local_now_and_slot_delta(
