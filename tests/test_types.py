@@ -6,6 +6,7 @@ import pytest
 from log_panel.types import (
     ERROR_LEVELS,
     CardFilter,
+    LogFilters,
     LogLevel,
     RangeConfig,
     RangeUnit,
@@ -19,6 +20,17 @@ def test_log_level_values():
     assert LogLevel.WARNING == "WARNING"
     assert LogLevel.ERROR == "ERROR"
     assert LogLevel.CRITICAL == "CRITICAL"
+
+
+def test_log_level_choices_returns_django_choices():
+    assert LogLevel.choices() == [
+        ("CRITICAL", "CRITICAL"),
+        ("ERROR", "ERROR"),
+        ("WARNING", "WARNING"),
+        ("INFO", "INFO"),
+        ("DEBUG", "DEBUG"),
+        ("NOTSET", "NOTSET"),
+    ]
 
 
 def test_slot_status_values():
@@ -42,6 +54,16 @@ def test_error_levels_does_not_contain_warning():
     assert LogLevel.WARNING not in ERROR_LEVELS
     assert LogLevel.INFO not in ERROR_LEVELS
     assert LogLevel.DEBUG not in ERROR_LEVELS
+
+
+def test_log_filters_defaults_to_unfiltered_query():
+    log_filters = LogFilters()
+
+    assert log_filters.logger_names is None
+    assert log_filters.levels is None
+    assert log_filters.search == ""
+    assert log_filters.timestamp_from is None
+    assert log_filters.timestamp_to is None
 
 
 def test_range_config_from_value_with_dict():
