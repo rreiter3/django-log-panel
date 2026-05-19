@@ -233,6 +233,31 @@ class LogCardManager(models.Manager):
             updates["last_seen"] = Greatest(F("last_seen"), last_seen)
             self.filter(logger=logger_obj).update(**updates)
 
+    def replace_snapshot(
+        self,
+        *,
+        logger_name: str,
+        total: int,
+        total_errors: int,
+        total_warnings: int,
+        last_seen: datetime,
+    ) -> None:
+        """Replace counters for *logger_name* with an exact rebuild snapshot."""
+        from log_panel.models import Logger
+
+        logger_obj, _ = Logger.objects.db_manager(self.db).get_or_create(
+            name=logger_name
+        )
+        self.update_or_create(
+            logger=logger_obj,
+            defaults={
+                "total": total,
+                "total_errors": total_errors,
+                "total_warnings": total_warnings,
+                "last_seen": last_seen,
+            },
+        )
+
 
 class TimelineBucketManager(models.Manager):
     """Manager for the LogTimelineBucket model — atomic bucket upserts."""
@@ -308,6 +333,33 @@ class TimelineBucketManager(models.Manager):
                 error_delta=ed,
                 warning_delta=wd,
             )
+
+    def replace_snapshot(
+        self,
+        *,
+        logger_name: str,
+        bucket: datetime,
+        unit: str,
+        log_count: int,
+        error_count: int,
+        warning_count: int,
+    ) -> None:
+        """Replace one timeline bucket with an exact rebuild snapshot."""
+        from log_panel.models import Logger
+
+        logger_obj, _ = Logger.objects.db_manager(self.db).get_or_create(
+            name=logger_name
+        )
+        self.update_or_create(
+            logger=logger_obj,
+            bucket=bucket,
+            unit=unit,
+            defaults={
+                "log_count": log_count,
+                "error_count": error_count,
+                "warning_count": warning_count,
+            },
+        )
 
     def _upsert_single(
         self,
