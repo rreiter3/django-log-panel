@@ -9,11 +9,10 @@ from django.core.signals import request_started
 
 from log_panel.conf import get_database_alias, get_setting
 from log_panel.handlers import BufferedDatabaseHandler, DatabaseHandler
+from log_panel.runtime import SERVER_COMMANDS, is_storage_muted_command
 
 LOGS_ROUTER_PATH = "log_panel.routers.LogsRouter"
 REQUEST_STARTED_DISPATCH_UID = "log_panel.attach_root_handler"
-SERVER_COMMANDS: set[str] = {"daphne", "gunicorn", "hypercorn", "runserver", "uvicorn"}
-MIGRATION_COMMANDS: set[str] = {"makemigrations", "migrate"}
 
 
 def bootstrap_log_panel() -> None:
@@ -75,7 +74,7 @@ def configure_root_handler() -> None:
     if not get_database_alias():
         return
 
-    if is_migration_command():
+    if is_storage_muted_command():
         return
 
     if should_defer_root_handler_attachment():
@@ -104,9 +103,3 @@ def should_defer_root_handler_attachment() -> bool:
     if sys.argv and set(Path(sys.argv[0]).parts) & SERVER_COMMANDS:
         return True
     return False
-
-
-def is_migration_command() -> bool:
-    """Return whether the current process is running Django migration orchestration."""
-    command_names = {Path(argument).name for argument in sys.argv}
-    return bool(command_names & MIGRATION_COMMANDS)

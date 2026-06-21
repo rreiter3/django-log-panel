@@ -6,7 +6,7 @@ import time_machine
 from django.core.management import call_command
 from django.test import override_settings
 
-from log_panel.models import Log
+from log_panel.models import Log, LogMessageChunk
 
 FROZEN_NOW = datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
 
@@ -91,6 +91,20 @@ def test_deletes_in_batches():
 
     call_command("delete_old_logs", batch_size=1000, stdout=StringIO())
     assert Log.objects.count() == 0
+
+
+@pytest.mark.django_db
+@time_machine.travel(FROZEN_NOW, tick=False)
+def test_deletes_message_chunks_in_batches(panel_factory):
+    log = panel_factory(timestamp=old(100), message_chunked=True)
+    LogMessageChunk.objects.create(log=log, index=0, text="old chunk")
+
+    out = StringIO()
+    call_command("delete_old_logs", batch_size=1, stdout=out)
+
+    assert Log.objects.count() == 0
+    assert LogMessageChunk.objects.count() == 0
+    assert "Deleted 1 log entries" in out.getvalue()
 
 
 @pytest.mark.django_db

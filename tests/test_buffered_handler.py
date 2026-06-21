@@ -461,11 +461,12 @@ def test_buffered_handler_pid_change_resets_process_state(log_record_factory):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("command", ["migrate", "delete_old_logs", "rebuild_log_cards"])
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 1, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_emit_skips_migration_commands(
-    log_record_factory, monkeypatch
+def test_buffered_handler_emit_skips_storage_muted_commands(
+    log_record_factory, monkeypatch, command
 ):
-    monkeypatch.setattr("log_panel.handlers.sql.sys.argv", ["manage.py", "migrate"])
+    monkeypatch.setattr("log_panel.runtime.sys.argv", ["manage.py", command])
 
     handler = BufferedDatabaseHandler()
     try:
@@ -478,14 +479,15 @@ def test_buffered_handler_emit_skips_migration_commands(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("command", ["migrate", "delete_old_logs", "rebuild_log_cards"])
 @override_settings(LOG_PANEL={"BUFFER_SIZE": 10, "BUFFER_FLUSH_INTERVAL": 60})
-def test_buffered_handler_flush_skips_migration_commands(
-    log_record_factory, monkeypatch
+def test_buffered_handler_flush_skips_storage_muted_commands(
+    log_record_factory, monkeypatch, command
 ):
     handler = BufferedDatabaseHandler()
     try:
         handler.emit(log_record_factory(level=logging.INFO))
-        monkeypatch.setattr("log_panel.handlers.sql.sys.argv", ["manage.py", "migrate"])
+        monkeypatch.setattr("log_panel.runtime.sys.argv", ["manage.py", command])
 
         handler.flush()
 
