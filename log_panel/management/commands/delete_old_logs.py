@@ -7,7 +7,7 @@ from django.db.models import QuerySet
 
 from log_panel.conf import get_setting
 from log_panel.datetimes import to_database_datetime
-from log_panel.models import Log
+from log_panel.models import Log, LogMessageChunk
 
 
 class Command(BaseCommand):
@@ -51,12 +51,13 @@ class Command(BaseCommand):
             return
 
         deleted_total: int = 0
-
         while True:
-            pks = list(base_qs.values_list("pk", flat=True)[:batch_size])
+            pks: list[Any] = list(
+                base_qs.order_by("timestamp").values_list("pk", flat=True)[:batch_size]
+            )
             if not pks:
                 break
-            count = Log.objects.filter(pk__in=pks).delete()[0]
+            count: int = self._delete_batch(pks=pks, base_qs=base_qs)
             deleted_total += count
 
         self.stdout.write(
@@ -66,3 +67,16 @@ class Command(BaseCommand):
         )
 
         call_command(command_name="rebuild_log_cards", stdout=self.stdout)
+
+    @staticmethod
+    def _delete_batch(*, pks: list[Any], base_qs: QuerySet[Log]) -> int:
+        """
+        Delete one batch without Django's cascade collector.
+
+        The normal QuerySet.delete() path discovers related objects before
+        deleting. That is costly for very large log tables, so cleanup deletes
+        the known child table first and then removes the parent rows directly.
+        """
+        db: str = base_qs.db
+        LogMessageChunk.objects.filter(log_id__in=pks)._raw_delete(using=db)
+        return base_qs.model.objects.filter(pk__in=pks)._raw_delete(using=db)

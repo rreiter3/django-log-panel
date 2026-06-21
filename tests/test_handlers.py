@@ -590,10 +590,11 @@ def test_database_handler_emit_skips_reentrant_call(log_record_factory):
 
 
 @pytest.mark.django_db
-def test_database_handler_emit_skips_migration_commands(
-    log_record_factory, monkeypatch
+@pytest.mark.parametrize("command", ["migrate", "delete_old_logs", "rebuild_log_cards"])
+def test_database_handler_emit_skips_storage_muted_commands(
+    log_record_factory, monkeypatch, command
 ):
-    monkeypatch.setattr("log_panel.handlers.sql.sys.argv", ["manage.py", "migrate"])
+    monkeypatch.setattr("log_panel.runtime.sys.argv", ["manage.py", command])
 
     handler = DatabaseHandler()
     handler.emit(log_record_factory())

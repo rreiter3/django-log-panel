@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +13,7 @@ from django.db import close_old_connections
 
 from log_panel.alerts import maybe_emit_threshold_signal
 from log_panel.datetimes import from_record_timestamp
+from log_panel.runtime import is_storage_muted_command
 
 
 class DatabaseHandler(Handler):
@@ -58,12 +58,12 @@ class DatabaseHandler(Handler):
         In ASGI contexts, Django protects the sync ORM from running inside an active event loop. Those records are
         persisted through a dedicated sync worker thread while preserving logging's synchronous delivery semantics.
 
-        Records emitted before the ``log_panel`` table exists (i.e. during ``migrate``) are silently discarded so they
-        cannot poison an in-progress migration transaction.
+        Records emitted during storage-muted commands (migrations and log-panel cleanup commands) are silently
+        discarded so maintenance work does not write back into the same log storage.
         """
         if getattr(self._local, "emitting", False):
             return
-        if self._is_migration_command():
+        if self._is_storage_muted_command():
             return
         if self._is_ignored_logger(logger_name=record.name):
             return
@@ -86,8 +86,8 @@ class DatabaseHandler(Handler):
         super().close()
 
     @staticmethod
-    def _is_migration_command() -> bool:
-        return bool({"makemigrations", "migrate"} & set(sys.argv))
+    def _is_storage_muted_command() -> bool:
+        return is_storage_muted_command()
 
     @staticmethod
     def _is_ignored_logger(*, logger_name: str) -> bool:
@@ -240,7 +240,7 @@ class BufferedDatabaseHandler(DatabaseHandler):
     def emit(self, record: LogRecord) -> None:
         if getattr(self._local, "emitting", False):
             return
-        if self._is_migration_command():
+        if self._is_storage_muted_command():
             return
         if self._is_ignored_logger(logger_name=record.name):
             return
@@ -284,7 +284,7 @@ class BufferedDatabaseHandler(DatabaseHandler):
             self.handleError(record)
 
     def flush(self) -> None:
-        if self._is_migration_command():
+        if self._is_storage_muted_command():
             return
         self._ensure_process_state()
         with self._buffer_lock:

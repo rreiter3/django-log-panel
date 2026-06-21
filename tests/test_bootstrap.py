@@ -135,12 +135,10 @@ def test_attach_root_handler_skips_when_database_alias_is_not_configured():
         "BUFFER_SIZE": 50,
     }
 )
-def test_configure_root_handler_attaches_immediately_for_management_command(
+def test_configure_root_handler_attaches_immediately_for_regular_management_command(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        "log_panel.bootstrap.sys.argv", ["manage.py", "delete_old_logs"]
-    )
+    monkeypatch.setattr("log_panel.bootstrap.sys.argv", ["manage.py", "shell"])
 
     from unittest.mock import patch
 
@@ -150,6 +148,7 @@ def test_configure_root_handler_attaches_immediately_for_management_command(
     mock_attach.assert_called_once_with()
 
 
+@pytest.mark.parametrize("command", ["migrate", "delete_old_logs", "rebuild_log_cards"])
 @override_settings(
     LOG_PANEL={
         "ATTACH_ROOT_HANDLER": True,
@@ -157,8 +156,8 @@ def test_configure_root_handler_attaches_immediately_for_management_command(
         "BUFFER_SIZE": 50,
     }
 )
-def test_configure_root_handler_skips_migration_commands(monkeypatch):
-    monkeypatch.setattr("log_panel.bootstrap.sys.argv", ["manage.py", "migrate"])
+def test_configure_root_handler_skips_storage_muted_commands(monkeypatch, command):
+    monkeypatch.setattr("log_panel.bootstrap.sys.argv", ["manage.py", command])
 
     from unittest.mock import patch
 
