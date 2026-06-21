@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 
-
 SERVER_COMMANDS: set[str] = {"daphne", "gunicorn", "hypercorn", "runserver", "uvicorn"}
 MIGRATION_COMMANDS: set[str] = {"makemigrations", "migrate"}
 STORAGE_MUTED_COMMANDS: set[str] = {
