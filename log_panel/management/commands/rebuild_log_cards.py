@@ -10,14 +10,21 @@ from log_panel.types import RangeUnit
 class Command(BaseCommand):
     help = "Rebuild all LogCard and LogTimelineBucket rows from the Log table."
 
-    def clean_up(self):
+    def clean_up(self) -> None:
         """Delete all LogCard and LogTimelineBucket rows."""
-        LogCard.objects.all().delete()
-        LogTimelineBucket.objects.all().delete()
+        self.stdout.write("Deleting all LogCard rows...")
+        deleted_cards, _ = LogCard.objects.all().delete()
+        self.stdout.write(f"Deleted {deleted_cards} LogCard rows.")
+
+        self.stdout.write("Deleting all LogTimelineBucket rows...")
+        deleted_buckets, _ = LogTimelineBucket.objects.all().delete()
+        self.stdout.write(f"Deleted {deleted_buckets} LogTimelineBucket rows.")
 
     def refresh_cards(self) -> int:
-        refreshed_count = 0
+        self.stdout.write("Running aggregate_counts_by_logger()...")
         aggregation = Log.objects.all().aggregate_counts_by_logger()  # ty: ignore[unresolved-attribute]
+        self.stdout.write("Aggregation done. Writing LogCard rows...")
+        refreshed_count = 0
         for row in aggregation:
             LogCard.objects.replace_snapshot(
                 logger_name=row["logger_name"],
@@ -27,6 +34,7 @@ class Command(BaseCommand):
                 last_seen=row["last_seen"],
             )
             refreshed_count += 1
+        self.stdout.write(f"LogCard rows written: {refreshed_count}")
         return refreshed_count
 
     def refresh_timeline_buckets(self) -> int:
@@ -35,7 +43,12 @@ class Command(BaseCommand):
             (TruncHour, RangeUnit.HOUR),
             (TruncDay, RangeUnit.DAY),
         ):
+            self.stdout.write(f"Running timeline_aggregate() for unit={unit}...")
             timeline_agg = Log.objects.all().timeline_aggregate(trunc_class=trunc_class)  # ty: ignore[unresolved-attribute]
+            self.stdout.write(
+                f"Aggregation done for unit={unit}. Writing LogTimelineBucket rows..."
+            )
+            unit_count = 0
             for row in timeline_agg:
                 LogTimelineBucket.objects.replace_snapshot(
                     logger_name=row["logger_name"],
@@ -45,7 +58,11 @@ class Command(BaseCommand):
                     error_count=row["error_count"] or 0,
                     warning_count=row["warning_count"] or 0,
                 )
-                buckets_created += 1
+                unit_count += 1
+            self.stdout.write(
+                f"LogTimelineBucket rows written for unit={unit}: {unit_count}"
+            )
+            buckets_created += unit_count
 
         return buckets_created
 

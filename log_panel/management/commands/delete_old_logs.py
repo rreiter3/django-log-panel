@@ -44,21 +44,35 @@ class Command(BaseCommand):
         )
         base_qs: QuerySet[Log] = Log.objects.filter(timestamp__lt=cutoff)
 
+        self.stdout.write(msg=f"Cutoff: {cutoff}")
+
         if dry_run:
+            self.stdout.write(msg="Counting records...")
             self.stdout.write(
                 msg=f"[dry-run] Would delete {base_qs.count()} log entries older than {retention_days} days."
             )
             return
 
+        self.stdout.write(msg="Counting records older than cutoff...")
+        total_count: int = base_qs.count()
+        self.stdout.write(msg=f"Found {total_count} records to delete.")
+
         deleted_total: int = 0
+        batch_num: int = 0
         while True:
+            batch_num += 1
+            self.stdout.write(msg=f"[batch {batch_num}] Fetching PKs...")
             pks: list[Any] = list(
                 base_qs.order_by("timestamp").values_list("pk", flat=True)[:batch_size]
             )
+            self.stdout.write(msg=f"[batch {batch_num}] Got {len(pks)} PKs.")
             if not pks:
                 break
             count: int = self._delete_batch(pks=pks, base_qs=base_qs)
             deleted_total += count
+            self.stdout.write(
+                msg=f"[batch {batch_num}] Done. Deleted {count}. Total so far: {deleted_total}"
+            )
 
         self.stdout.write(
             msg=self.style.SUCCESS(
@@ -66,10 +80,10 @@ class Command(BaseCommand):
             )
         )
 
+        self.stdout.write(msg="Calling rebuild_log_cards...")
         call_command(command_name="rebuild_log_cards", stdout=self.stdout)
 
-    @staticmethod
-    def _delete_batch(*, pks: list[Any], base_qs: QuerySet[Log]) -> int:
+    def _delete_batch(self, *, pks: list[Any], base_qs: QuerySet[Log]) -> int:
         """
         Delete one batch without Django's cascade collector.
 
@@ -78,5 +92,15 @@ class Command(BaseCommand):
         the known child table first and then removes the parent rows directly.
         """
         db: str = base_qs.db
-        LogMessageChunk.objects.filter(log_id__in=pks)._raw_delete(using=db)
-        return base_qs.model.objects.filter(pk__in=pks)._raw_delete(using=db)
+
+        self.stdout.write(msg=f"  Deleting chunks for {len(pks)} PKs...")
+        chunk_count: int = LogMessageChunk.objects.filter(log_id__in=pks)._raw_delete(
+            using=db
+        )
+        self.stdout.write(msg=f"  Chunks deleted: {chunk_count}")
+
+        self.stdout.write(msg=f"  Deleting {len(pks)} log records...")
+        log_count: int = base_qs.model.objects.filter(pk__in=pks)._raw_delete(using=db)
+        self.stdout.write(msg=f"  Log records deleted: {log_count}")
+
+        return log_count
