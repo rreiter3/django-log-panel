@@ -1,14 +1,9 @@
-from datetime import UTC, datetime
-
 import pytest
 
 from log_panel.management.commands.rebuild_log_cards import Command
 from log_panel.models import Log, LogCard, LogTimelineBucket
 from log_panel.types import RangeUnit
-
-
-def dt(hour: int, minute: int = 0) -> datetime:
-    return datetime(2024, 6, 15, hour, minute, tzinfo=UTC)
+from tests.helpers import dt
 
 
 @pytest.mark.django_db

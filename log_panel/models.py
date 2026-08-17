@@ -4,7 +4,12 @@ from typing import TYPE_CHECKING, Protocol
 from django.db import models
 from django.db.models.indexes import Index
 
-from log_panel.managers import LogCardManager, LogRecordManager, TimelineBucketManager
+from log_panel.managers import (
+    LogCardManager,
+    LoggerManager,
+    LogRecordManager,
+    TimelineBucketManager,
+)
 from log_panel.types import RangeUnit
 
 if TYPE_CHECKING:
@@ -88,6 +93,8 @@ class Logger(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200, unique=True)
+
+    objects = LoggerManager()
 
     class Meta:
         db_table = "log_panel_logger"
