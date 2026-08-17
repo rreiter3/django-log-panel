@@ -1,12 +1,16 @@
 from datetime import UTC, datetime
 
 import pytest
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from log_panel.backends.sql import OrmBackend
 from log_panel.managers import LogQuery, LogReader
-from log_panel.models import Log, LogMessageChunk
+from log_panel.models import Log, LogCard, Logger, LogMessageChunk, LogTimelineBucket
 from log_panel.querysets import levels_at_or_above
+from log_panel.types import RangeUnit
+from tests.helpers import dt
 
 
 def test_levels_at_or_above_debug_returns_all_levels():
@@ -311,3 +315,189 @@ def test_create_from_record_chunks_large_message():
         .values_list("text", flat=True)
     ) == ["abcdefghij", "klmnopqrst", "uvwxyz"]
     assert panel.get_full_message() == message
+
+
+@pytest.mark.django_db
+def test_get_or_create_many_returns_empty_dict_for_no_names():
+    assert Logger.objects.get_or_create_many(names=[]) == {}
+
+
+@pytest.mark.django_db
+def test_get_or_create_many_creates_missing_loggers():
+    result = Logger.objects.get_or_create_many(names=["orders", "machines"])
+    assert set(result.keys()) == {"orders", "machines"}
+    assert Logger.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_get_or_create_many_reuses_existing_loggers_without_duplicating():
+    existing = Logger.objects.create(name="orders")
+    result = Logger.objects.get_or_create_many(names=["orders", "machines"])
+    assert result["orders"].pk == existing.pk
+    assert Logger.objects.filter(name="orders").count() == 1
+
+
+@pytest.mark.django_db
+def test_get_or_create_many_dedupes_repeated_names():
+    Logger.objects.get_or_create_many(names=["orders", "orders", "orders"])
+    assert Logger.objects.filter(name="orders").count() == 1
+
+
+@pytest.mark.django_db
+def test_bulk_create_from_records_aggregates_totals_per_logger(record_factory):
+    records = [
+        record_factory(logger_name="orders", timestamp=dt(hour=10), level="INFO"),
+        record_factory(
+            logger_name="orders", timestamp=dt(hour=10, minute=30), level="ERROR"
+        ),
+        record_factory(logger_name="machines", timestamp=dt(hour=11), level="WARNING"),
+    ]
+
+    Log.objects.bulk_create_from_records(records)
+
+    orders_card = LogCard.objects.select_related("logger").get(logger__name="orders")
+    assert orders_card.total == 2
+    assert orders_card.total_errors == 1
+    assert orders_card.total_warnings == 0
+    assert orders_card.last_seen == dt(hour=10, minute=30)
+
+    machines_card = LogCard.objects.select_related("logger").get(
+        logger__name="machines"
+    )
+    assert machines_card.total == 1
+    assert machines_card.total_warnings == 1
+
+
+@pytest.mark.django_db
+def test_bulk_create_from_records_increments_existing_cards_across_flushes(
+    record_factory,
+):
+    Log.objects.bulk_create_from_records(
+        [record_factory(logger_name="orders", timestamp=dt(hour=10), level="INFO")]
+    )
+    Log.objects.bulk_create_from_records(
+        [
+            record_factory(logger_name="orders", timestamp=dt(hour=11), level="ERROR"),
+            record_factory(logger_name="orders", timestamp=dt(hour=9), level="INFO"),
+        ]
+    )
+
+    card = LogCard.objects.select_related("logger").get(logger__name="orders")
+    assert card.total == 3
+    assert card.total_errors == 1
+    assert card.last_seen == dt(hour=11)
+
+
+@pytest.mark.django_db
+def test_bulk_create_from_records_handles_mix_of_new_and_existing_loggers_in_one_flush(
+    record_factory,
+):
+    Log.objects.bulk_create_from_records(
+        [record_factory(logger_name="orders", timestamp=dt(hour=9))]
+    )
+
+    Log.objects.bulk_create_from_records(
+        [
+            record_factory(logger_name="orders", timestamp=dt(hour=10)),
+            record_factory(logger_name="machines", timestamp=dt(hour=10)),
+        ]
+    )
+
+    orders_card = LogCard.objects.select_related("logger").get(logger__name="orders")
+    machines_card = LogCard.objects.select_related("logger").get(
+        logger__name="machines"
+    )
+    assert orders_card.total == 2
+    assert machines_card.total == 1
+
+
+@pytest.mark.django_db
+def test_bulk_create_from_records_aggregates_timeline_buckets_across_loggers_and_hours(
+    record_factory,
+):
+    records = [
+        record_factory(
+            logger_name="orders", timestamp=dt(hour=10, minute=0), level="INFO"
+        ),
+        record_factory(
+            logger_name="orders", timestamp=dt(hour=10, minute=30), level="ERROR"
+        ),
+        record_factory(
+            logger_name="orders", timestamp=dt(hour=11, minute=0), level="WARNING"
+        ),
+        record_factory(
+            logger_name="machines", timestamp=dt(hour=10, minute=0), level="INFO"
+        ),
+    ]
+
+    Log.objects.bulk_create_from_records(records)
+
+    orders_hour10 = LogTimelineBucket.objects.get(
+        logger__name="orders", bucket=dt(hour=10), unit=RangeUnit.HOUR
+    )
+    assert orders_hour10.log_count == 2
+    assert orders_hour10.error_count == 1
+
+    orders_hour11 = LogTimelineBucket.objects.get(
+        logger__name="orders", bucket=dt(hour=11), unit=RangeUnit.HOUR
+    )
+    assert orders_hour11.log_count == 1
+    assert orders_hour11.warning_count == 1
+
+    orders_day = LogTimelineBucket.objects.get(
+        logger__name="orders", bucket=dt(hour=0), unit=RangeUnit.DAY
+    )
+    assert orders_day.log_count == 3
+    assert orders_day.error_count == 1
+    assert orders_day.warning_count == 1
+
+    machines_hour10 = LogTimelineBucket.objects.get(
+        logger__name="machines", bucket=dt(hour=10), unit=RangeUnit.HOUR
+    )
+    assert machines_hour10.log_count == 1
+
+
+@pytest.mark.django_db
+def test_bulk_create_from_records_increments_existing_timeline_buckets_across_flushes(
+    record_factory,
+):
+    Log.objects.bulk_create_from_records(
+        [record_factory(logger_name="orders", timestamp=dt(hour=10), level="INFO")]
+    )
+    Log.objects.bulk_create_from_records(
+        [
+            record_factory(
+                logger_name="orders", timestamp=dt(hour=10, minute=15), level="ERROR"
+            )
+        ]
+    )
+
+    bucket = LogTimelineBucket.objects.get(
+        logger__name="orders", bucket=dt(hour=10), unit=RangeUnit.HOUR
+    )
+    assert bucket.log_count == 2
+    assert bucket.error_count == 1
+
+
+@pytest.mark.django_db
+def test_bulk_create_from_records_query_count_is_flat_regardless_of_logger_count(
+    record_factory,
+):
+    """
+    Regression guard for the N+1 upsert fix: flushing records for many distinct
+    loggers in one call must not add roughly one query set per logger.
+    """
+
+    def records_for(logger_count: int) -> list[dict]:
+        return [
+            record_factory(logger_name=f"logger_{i}", timestamp=dt(hour=10))
+            for i in range(logger_count)
+        ]
+
+    with CaptureQueriesContext(connection) as few:
+        Log.objects.bulk_create_from_records(records_for(2))
+
+    with CaptureQueriesContext(connection) as many:
+        Log.objects.bulk_create_from_records(records_for(20))
+
+    assert len(many.captured_queries) - len(few.captured_queries) <= 2

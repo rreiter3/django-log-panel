@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.db import models
-from django.db.models import F
+from django.db.models import Case, F, When
 from django.db.models.functions import Greatest
 
 from log_panel.datetimes import to_database_datetime
@@ -18,7 +19,35 @@ from log_panel.querysets import (
 from log_panel.types import ERROR_LEVELS, LogLevel, MessageParts, RangeUnit
 
 if TYPE_CHECKING:
-    from log_panel.models import Log
+    from log_panel.models import Log, Logger
+
+
+class LoggerManager(models.Manager):
+    """Manager for the Logger model — resolves logger names to rows in bulk."""
+
+    def get_or_create_many(self, *, names: Iterable[str]) -> dict[str, Logger]:
+        """
+        Fetch or create Logger rows for *names* in a fixed, small number of queries.
+
+        Used to batch what would otherwise be one get_or_create() round trip per
+        logger name across the LogCard/LogTimelineBucket upsert paths.
+        """
+        unique_names = set(names)
+        if not unique_names:
+            return {}
+
+        loggers: dict[str, Logger] = {
+            logger.name: logger for logger in self.filter(name__in=unique_names)
+        }
+        missing = unique_names - loggers.keys()
+        if missing:
+            self.bulk_create(
+                [self.model(name=name) for name in missing], ignore_conflicts=True
+            )
+            loggers.update(
+                {logger.name: logger for logger in self.filter(name__in=missing)}
+            )
+        return loggers
 
 
 class LogReader:
@@ -95,25 +124,32 @@ class LogRecordManager(models.Manager):
             )
 
         db_timestamp: datetime = to_database_datetime(value=timestamp)
-        from log_panel.models import LogCard, LogTimelineBucket
+        from log_panel.models import LogCard, Logger, LogTimelineBucket
 
-        LogCard.objects.db_manager(self.db).upsert(
-            logger_name=logger_name,
-            total_delta=1,
-            error_delta=1 if level in ERROR_LEVELS else 0,
-            warning_delta=1 if level == LogLevel.WARNING else 0,
-            last_seen=db_timestamp,
+        loggers = Logger.objects.db_manager(self.db).get_or_create_many(
+            names=[logger_name]
         )
-        LogTimelineBucket.objects.db_manager(self.db).upsert(
-            logger_name=logger_name,
-            timestamp=db_timestamp,
-            level=level,
+        LogCard.objects.db_manager(self.db).bulk_upsert(
+            [
+                {
+                    "logger_name": logger_name,
+                    "total_delta": 1,
+                    "error_delta": 1 if level in ERROR_LEVELS else 0,
+                    "warning_delta": 1 if level == LogLevel.WARNING else 0,
+                    "last_seen": db_timestamp,
+                }
+            ],
+            loggers=loggers,
+        )
+        LogTimelineBucket.objects.db_manager(self.db).bulk_upsert(
+            [{"logger_name": logger_name, "timestamp": db_timestamp, "level": level}],
+            loggers=loggers,
         )
         return log
 
     def bulk_create_from_records(self, records: list[dict[str, Any]]) -> list[Log]:
         """Persist multiple log records in a single bulk insert operation."""
-        from log_panel.models import LogCard, LogMessageChunk, LogTimelineBucket
+        from log_panel.models import LogCard, Logger, LogMessageChunk, LogTimelineBucket
 
         parts_list = [self._split_message(message=r["message"]) for r in records]
 
@@ -160,16 +196,27 @@ class LogRecordManager(models.Manager):
             if name not in last_seen_by_logger or ts > last_seen_by_logger[name]:
                 last_seen_by_logger[name] = ts
 
-        for name in total_by_logger:
-            LogCard.objects.db_manager(self.db).upsert(
-                logger_name=name,
-                total_delta=total_by_logger[name],
-                error_delta=errors_by_logger[name],
-                warning_delta=warnings_by_logger[name],
-                last_seen=last_seen_by_logger[name],
-            )
+        loggers = Logger.objects.db_manager(self.db).get_or_create_many(
+            names=total_by_logger.keys()
+        )
 
-        LogTimelineBucket.objects.db_manager(self.db).bulk_upsert(records)
+        LogCard.objects.db_manager(self.db).bulk_upsert(
+            [
+                {
+                    "logger_name": name,
+                    "total_delta": total_by_logger[name],
+                    "error_delta": errors_by_logger[name],
+                    "warning_delta": warnings_by_logger[name],
+                    "last_seen": last_seen_by_logger[name],
+                }
+                for name in total_by_logger
+            ],
+            loggers=loggers,
+        )
+
+        LogTimelineBucket.objects.db_manager(self.db).bulk_upsert(
+            records, loggers=loggers
+        )
 
         return created_logs
 
@@ -208,30 +255,104 @@ class LogCardManager(models.Manager):
         last_seen: datetime,
     ) -> None:
         """Create or atomically increment counters for *logger_name*."""
-        from log_panel.models import Logger
+        self.bulk_upsert(
+            [
+                {
+                    "logger_name": logger_name,
+                    "total_delta": total_delta,
+                    "error_delta": error_delta,
+                    "warning_delta": warning_delta,
+                    "last_seen": last_seen,
+                }
+            ]
+        )
 
-        logger_obj, _ = Logger.objects.db_manager(self.db).get_or_create(
-            name=logger_name
+    def bulk_upsert(
+        self,
+        entries: list[dict[str, Any]],
+        *,
+        loggers: dict[str, Any] | None = None,
+    ) -> None:
+        """Create or atomically increment counters for a batch of loggers in a fixed number of queries."""
+        if not entries:
+            return
+        if loggers is None:
+            from log_panel.models import Logger
+
+            loggers = Logger.objects.db_manager(self.db).get_or_create_many(
+                names=(entry["logger_name"] for entry in entries)
+            )
+
+        logger_ids = [loggers[entry["logger_name"]].id for entry in entries]
+        existing_pk_by_logger_id: dict[Any, Any] = dict(
+            self.filter(logger_id__in=logger_ids).values_list("logger_id", "pk")
         )
-        _, created = self.get_or_create(
-            logger=logger_obj,
-            defaults={
-                "total": total_delta,
-                "total_errors": error_delta,
-                "total_warnings": warning_delta,
-                "last_seen": last_seen,
-            },
-        )
-        if not created:
+
+        to_create: list[Any] = []
+        total_cases: list[When] = []
+        error_cases: list[When] = []
+        warning_cases: list[When] = []
+        last_seen_cases: list[When] = []
+        update_pks: list[Any] = []
+
+        for entry in entries:
+            logger_obj = loggers[entry["logger_name"]]
+            pk = existing_pk_by_logger_id.get(logger_obj.id)
+            if pk is not None:
+                update_pks.append(pk)
+                total_cases.append(When(pk=pk, then=F("total") + entry["total_delta"]))
+                if entry["error_delta"]:
+                    error_cases.append(
+                        When(pk=pk, then=F("total_errors") + entry["error_delta"])
+                    )
+                if entry["warning_delta"]:
+                    warning_cases.append(
+                        When(pk=pk, then=F("total_warnings") + entry["warning_delta"])
+                    )
+                last_seen_cases.append(
+                    When(pk=pk, then=Greatest(F("last_seen"), entry["last_seen"]))
+                )
+            else:
+                to_create.append(
+                    self.model(
+                        logger=logger_obj,
+                        total=entry["total_delta"],
+                        total_errors=entry["error_delta"],
+                        total_warnings=entry["warning_delta"],
+                        last_seen=entry["last_seen"],
+                    )
+                )
+
+        if to_create:
+            self.bulk_create(to_create)
+
+        if update_pks:
+            meta = self.model._meta
             updates: dict[str, Any] = {
-                "total": F("total") + total_delta,
+                "total": Case(
+                    *total_cases,
+                    default=F("total"),
+                    output_field=meta.get_field("total"),
+                ),
             }
-            if error_delta:
-                updates["total_errors"] = F("total_errors") + error_delta
-            if warning_delta:
-                updates["total_warnings"] = F("total_warnings") + warning_delta
-            updates["last_seen"] = Greatest(F("last_seen"), last_seen)
-            self.filter(logger=logger_obj).update(**updates)
+            if error_cases:
+                updates["total_errors"] = Case(
+                    *error_cases,
+                    default=F("total_errors"),
+                    output_field=meta.get_field("total_errors"),
+                )
+            if warning_cases:
+                updates["total_warnings"] = Case(
+                    *warning_cases,
+                    default=F("total_warnings"),
+                    output_field=meta.get_field("total_warnings"),
+                )
+            updates["last_seen"] = Case(
+                *last_seen_cases,
+                default=F("last_seen"),
+                output_field=meta.get_field("last_seen"),
+            )
+            self.filter(pk__in=update_pks).update(**updates)
 
     def replace_snapshot(
         self,
@@ -267,35 +388,27 @@ class TimelineBucketManager(models.Manager):
 
     def upsert(self, *, logger_name: str, timestamp: datetime, level: str) -> None:
         """Create or increment hourly and daily buckets for a single log record."""
-        from log_panel.models import Logger
-
-        logger_obj, _ = Logger.objects.db_manager(self.db).get_or_create(
-            name=logger_name
+        self.bulk_upsert(
+            [{"logger_name": logger_name, "timestamp": timestamp, "level": level}]
         )
-        error_delta: Literal[1, 0] = 1 if level in ERROR_LEVELS else 0
-        warning_delta: Literal[1, 0] = 1 if level == LogLevel.WARNING else 0
 
-        hour_bucket = timestamp.replace(minute=0, second=0, microsecond=0)
-        day_bucket = timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+    def bulk_upsert(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        loggers: dict[str, Any] | None = None,
+    ) -> None:
+        """Aggregate and upsert timeline buckets for a batch of log records in a fixed number of queries."""
+        if not records:
+            return
+        if loggers is None:
+            from log_panel.models import Logger
 
-        for bucket, unit in (
-            (hour_bucket, RangeUnit.HOUR),
-            (day_bucket, RangeUnit.DAY),
-        ):
-            self._upsert_single(
-                logger=logger_obj,
-                bucket=bucket,
-                unit=unit,
-                log_count_delta=1,
-                error_delta=error_delta,
-                warning_delta=warning_delta,
+            loggers = Logger.objects.db_manager(self.db).get_or_create_many(
+                names=(r["logger_name"] for r in records)
             )
 
-    def bulk_upsert(self, records: list[dict[str, Any]]) -> None:
-        """Aggregate and upsert timeline buckets for a batch of log records."""
-        from log_panel.models import Logger
-
-        BucketKey = tuple[str, datetime, str]
+        BucketKey = tuple[Any, datetime, str]
         deltas: dict[BucketKey, list[int]] = {}
 
         for r in records:
@@ -304,7 +417,7 @@ class TimelineBucketManager(models.Manager):
             warning_delta: Literal[1, 0] = 1 if level == LogLevel.WARNING else 0
 
             ts: datetime = to_database_datetime(value=r["timestamp"])
-            name = r["logger_name"]
+            logger_id = loggers[r["logger_name"]].id
 
             hour_bucket = ts.replace(minute=0, second=0, microsecond=0)
             day_bucket = ts.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -313,7 +426,7 @@ class TimelineBucketManager(models.Manager):
                 (hour_bucket, RangeUnit.HOUR),
                 (day_bucket, RangeUnit.DAY),
             ):
-                key: BucketKey = (name, bucket, unit)
+                key: BucketKey = (logger_id, bucket, unit)
                 if key in deltas:
                     deltas[key][0] += 1
                     deltas[key][1] += error_delta
@@ -321,18 +434,70 @@ class TimelineBucketManager(models.Manager):
                 else:
                     deltas[key] = [1, error_delta, warning_delta]
 
-        for (logger_name, bucket, unit), (lc, ed, wd) in deltas.items():
-            logger_obj, _ = Logger.objects.db_manager(self.db).get_or_create(
-                name=logger_name
-            )
-            self._upsert_single(
-                logger=logger_obj,
-                bucket=bucket,
-                unit=unit,
-                log_count_delta=lc,
-                error_delta=ed,
-                warning_delta=wd,
-            )
+        if not deltas:
+            return
+
+        logger_ids = {logger_id for logger_id, _, _ in deltas}
+        existing_pk_by_key: dict[BucketKey, Any] = {
+            (logger_id, bucket, unit): pk
+            for pk, logger_id, bucket, unit in self.filter(
+                logger_id__in=logger_ids
+            ).values_list("pk", "logger_id", "bucket", "unit")
+        }
+
+        to_create: list[Any] = []
+        count_cases: list[When] = []
+        error_cases: list[When] = []
+        warning_cases: list[When] = []
+        update_pks: list[Any] = []
+
+        for key, (lc, ed, wd) in deltas.items():
+            logger_id, bucket, unit = key
+            pk = existing_pk_by_key.get(key)
+            if pk is not None:
+                update_pks.append(pk)
+                count_cases.append(When(pk=pk, then=F("log_count") + lc))
+                if ed:
+                    error_cases.append(When(pk=pk, then=F("error_count") + ed))
+                if wd:
+                    warning_cases.append(When(pk=pk, then=F("warning_count") + wd))
+            else:
+                to_create.append(
+                    self.model(
+                        logger_id=logger_id,
+                        bucket=bucket,
+                        unit=unit,
+                        log_count=lc,
+                        error_count=ed,
+                        warning_count=wd,
+                    )
+                )
+
+        if to_create:
+            self.bulk_create(to_create)
+
+        if update_pks:
+            meta = self.model._meta
+            updates: dict[str, Any] = {
+                "log_count": Case(
+                    *count_cases,
+                    default=F("log_count"),
+                    output_field=meta.get_field("log_count"),
+                ),
+            }
+            if error_cases:
+                updates["error_count"] = Case(
+                    *error_cases,
+                    default=F("error_count"),
+                    output_field=meta.get_field("error_count"),
+                )
+            if warning_cases:
+                updates["warning_count"] = Case(
+                    *warning_cases,
+                    default=F("warning_count"),
+                    output_field=meta.get_field("warning_count"),
+                )
+            self.filter(pk__in=update_pks).update(**updates)
 
     def replace_snapshot(
         self,
@@ -360,34 +525,3 @@ class TimelineBucketManager(models.Manager):
                 "warning_count": warning_count,
             },
         )
-
-    def _upsert_single(
-        self,
-        *,
-        logger: Any,
-        bucket: datetime,
-        unit: str,
-        log_count_delta: int,
-        error_delta: int,
-        warning_delta: int,
-    ) -> None:
-        """Atomically upsert a single timeline bucket row."""
-        _, created = self.get_or_create(
-            logger=logger,
-            bucket=bucket,
-            unit=unit,
-            defaults={
-                "log_count": log_count_delta,
-                "error_count": error_delta,
-                "warning_count": warning_delta,
-            },
-        )
-        if not created:
-            updates: dict[str, Any] = {
-                "log_count": F("log_count") + log_count_delta,
-            }
-            if error_delta:
-                updates["error_count"] = F("error_count") + error_delta
-            if warning_delta:
-                updates["warning_count"] = F("warning_count") + warning_delta
-            self.filter(logger=logger, bucket=bucket, unit=unit).update(**updates)

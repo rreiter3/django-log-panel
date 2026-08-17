@@ -46,6 +46,26 @@ def log_record_factory():
 
 
 @pytest.fixture
+def record_factory():
+    """Return a callable that builds dicts shaped for bulk_create_from_records."""
+
+    def make_record(**kwargs):
+        defaults = {
+            "timestamp": timezone.now(),
+            "level": "INFO",
+            "logger_name": "myapp",
+            "message": "test message",
+            "module": "views",
+            "pathname": "/app/views.py",
+            "line_number": 1,
+        }
+        defaults.update(kwargs)
+        return defaults
+
+    return make_record
+
+
+@pytest.fixture
 def panel_factory(db):
     """Return a callable that creates Log instances and maintains pre-computed models."""
 
